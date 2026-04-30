@@ -66,7 +66,7 @@ if (-not $SkipAdlxBindings) {
     Write-Host "Step 1: Building ADLX C# bindings..." -ForegroundColor Cyan
     Push-Location "$Root\external\ADLX\Samples\csharp"
     try {
-        & msbuild csharp.sln -p:Configuration=$Configuration -p:Platform=x64 -v:m
+        & msbuild csharp.sln -restore -p:Configuration=$Configuration -p:Platform=x64 -v:m
         if ($LASTEXITCODE -ne 0) { throw "ADLX build failed" }
     }
     finally {

@@ -17,14 +17,14 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\external\ADLX\Samples\csharp\ADLXWrapper\ADLXWrapper.csproj" />
+    <ProjectReference Include="..\external\ADLX\Samples\csharp\ADLXWrapper\ADLXWrapper.csproj" />
     <EmbeddedResource Include="Assets\tray-icon.png" />
   </ItemGroup>
 
   <!-- Copy ADLXCSharpBind.dll to output. Build ADLXCSharpBind first (C++ project in solution, requires Visual Studio on Windows). -->
   <Target Name="CopyAdlxNativeLibs" AfterTargets="Build">
     <PropertyGroup>
-      <AdlxBindPath>$(MSBuildThisFileDirectory)..\..\external\ADLX\Samples\csharp\x64\$(Configuration)\ADLXCSharpBind.dll</AdlxBindPath>
+      <AdlxBindPath>$(MSBuildThisFileDirectory)..\external\ADLX\Samples\csharp\x64\$(Configuration)\ADLXCSharpBind.dll</AdlxBindPath>
     </PropertyGroup>
     <Copy SourceFiles="$(AdlxBindPath)" DestinationFolder="$(OutputPath)" SkipUnchangedFiles="true" Condition="Exists('$(AdlxBindPath)')" />
   </Target>

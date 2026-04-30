@@ -1,4 +1,5 @@
 using ADLXWrapper;
+using AdlxSdk = ADLXWrapper.ADLXWrapper;
 
 namespace LightweightAmdGpuFanControl.Adlx;
 
@@ -7,7 +8,7 @@ namespace LightweightAmdGpuFanControl.Adlx;
 /// </summary>
 public sealed class AdlxInitializer : IDisposable
 {
-    private ADLXWrapper? _wrapper;
+    private AdlxSdk? _wrapper;
     private bool _disposed;
 
     public bool IsInitialized => _wrapper != null;
@@ -23,7 +24,7 @@ public sealed class AdlxInitializer : IDisposable
 
         try
         {
-            _wrapper = new ADLXWrapper();
+            _wrapper = new AdlxSdk();
             return true;
         }
         catch (Exception)

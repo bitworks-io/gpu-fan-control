@@ -1,0 +1,48 @@
+name: Build Windows Installer
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Install build tools
+        shell: powershell
+        run: |
+          choco install swig innosetup -y
+
+      - name: Build installer
+        shell: powershell
+        run: |
+          .\build.ps1
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: LightweightAmdGpuFanControl-Setup
+          path: output\LightweightAmdGpuFanControl-Setup.exe
+
+      - name: Upload publish output
+        uses: actions/upload-artifact@v4
+        with:
+          name: LightweightAmdGpuFanControl-publish
+          path: LightweightAmdGpuFanControl\bin\Release\net8.0-windows\win-x64\publish\

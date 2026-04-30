@@ -1,0 +1,3 @@
+[submodule "external/ADLX"]
+	path = external/ADLX
+	url = https://github.com/Rem0o/ADLX.git

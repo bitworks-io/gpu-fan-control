@@ -1,0 +1,18 @@
+# Build outputs
+bin/
+obj/
+output/
+*.user
+*.suo
+.vs/
+*.pidb
+
+# Publish
+publish/
+
+# Inno Setup
+installer/*.exe
+
+# Logs
+*.log
+log.txt

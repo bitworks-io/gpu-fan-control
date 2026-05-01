@@ -8,7 +8,7 @@
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
     <ImplicitUsings>enable</ImplicitUsings>
     <PlatformTarget>x64</PlatformTarget>
-    <!-- ApplicationIcon added when tray.ico is available -->
+    <ApplicationIcon>Assets\app.ico</ApplicationIcon>
     <AssemblyName>LightweightAmdGpuFanControl</AssemblyName>
     <RootNamespace>LightweightAmdGpuFanControl</RootNamespace>
     <Author>Bitworks</Author>
@@ -18,7 +18,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\external\ADLX\Samples\csharp\ADLXWrapper\ADLXWrapper.csproj" />
-    <EmbeddedResource Include="Assets\tray-icon.png" />
+    <EmbeddedResource Include="Assets\tray.ico" />
   </ItemGroup>
 
   <!-- Copy ADLXCSharpBind.dll to output. Build ADLXCSharpBind first (C++ project in solution, requires Visual Studio on Windows). -->

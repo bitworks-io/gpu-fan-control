@@ -38,11 +38,12 @@ public sealed class SystrayApplicationContext : ApplicationContext
     private static Icon CreateTrayIcon()
     {
         using var stream = typeof(SystrayApplicationContext).Assembly
-            .GetManifestResourceStream("LightweightAmdGpuFanControl.Assets.tray-icon.png");
+            .GetManifestResourceStream("LightweightAmdGpuFanControl.Assets.tray.ico");
         if (stream == null)
             return CreateFallbackIcon();
-        using var bmp = new Bitmap(stream);
-        return (Icon)Icon.FromHandle(bmp.GetHicon()).Clone();
+
+        using var icon = new Icon(stream);
+        return (Icon)icon.Clone();
     }
 
     private static Icon CreateFallbackIcon()

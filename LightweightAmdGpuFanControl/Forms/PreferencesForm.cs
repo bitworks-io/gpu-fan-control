@@ -198,7 +198,7 @@ public class PreferencesForm : Form
         };
         okButton.Click += OkButton_Click;
 
-        Controls.AddRange(new Control[]
+        Controls.AddRange(new System.Windows.Forms.Control[]
         {
             targetLabel, _targetTempControl,
             minFanLabel, _minFanControl,

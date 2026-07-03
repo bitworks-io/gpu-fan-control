@@ -190,7 +190,7 @@ public sealed class SystrayApplicationContext : ApplicationContext
         var ok = new Button { Text = "OK", DialogResult = DialogResult.OK, Location = new Point(100, 65), Width = 70 };
         var cancel = new Button { Text = "Cancel", DialogResult = DialogResult.Cancel, Location = new Point(180, 65), Width = 70 };
 
-        form.Controls.AddRange(new Control[] { label, upDown, ok, cancel });
+        form.Controls.AddRange(new System.Windows.Forms.Control[] { label, upDown, ok, cancel });
         form.AcceptButton = ok;
         form.CancelButton = cancel;
 

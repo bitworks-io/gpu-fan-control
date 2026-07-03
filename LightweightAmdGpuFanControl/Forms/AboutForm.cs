@@ -81,7 +81,7 @@ public sealed class AboutForm : Form
             Width = 75
         };
 
-        Controls.AddRange(new Control[]
+        Controls.AddRange(new System.Windows.Forms.Control[]
         {
             titleLabel, versionLabel, publisherLabel, blurbLabel,
             feedbackButton, websiteLink, okButton

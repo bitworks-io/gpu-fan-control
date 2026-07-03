@@ -19,6 +19,11 @@ param(
 $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent $MyInvocation.MyCommand.Path
 
+# Single source of truth for the version (repo-root VERSION file), propagated to the app and installer.
+$VersionFile = Join-Path $Root "VERSION"
+$Version = if (Test-Path $VersionFile) { (Get-Content $VersionFile -Raw).Trim() } else { "1.0.0" }
+Write-Host "Building version $Version" -ForegroundColor Cyan
+
 function Assert-Command {
     param(
         [Parameter(Mandatory = $true)][string]$Name,
@@ -75,7 +80,7 @@ if (-not $SkipAdlxBindings) {
 }
 
 Write-Host "Step 2: Publishing application..." -ForegroundColor Cyan
-& dotnet publish "$Root\LightweightAmdGpuFanControl\LightweightAmdGpuFanControl.csproj" -c $Configuration -r win-x64 --self-contained false -v m
+& dotnet publish "$Root\LightweightAmdGpuFanControl\LightweightAmdGpuFanControl.csproj" -c $Configuration -r win-x64 --self-contained false -v m -p:Version=$Version
 if ($LASTEXITCODE -ne 0) { throw "Publish failed" }
 
 if (-not $SkipInstaller) {
@@ -85,7 +90,7 @@ if (-not $SkipInstaller) {
         throw "Inno Setup (iscc) was not found. Install Inno Setup 6 or rerun with -SkipInstaller."
     }
 
-    & iscc "$Root\installer\LightweightAmdGpuFanControl.iss"
+    & iscc "/DMyAppVersion=$Version" "$Root\installer\LightweightAmdGpuFanControl.iss"
     if ($LASTEXITCODE -ne 0) { throw "Installer build failed" }
     Write-Host "Installer: $Root\output\LightweightAmdGpuFanControl-Setup.exe" -ForegroundColor Green
 }

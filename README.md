@@ -26,6 +26,16 @@ A Windows systray utility that monitors AMD GPU temperature and dynamically adju
 - AMD Software: Adrenalin Edition (latest drivers)
 - .NET 8 runtime (included if built self-contained)
 
+## Installation
+
+Download `LightweightAmdGpuFanControl-Setup.exe` from the latest release (or the latest successful
+[Build Windows Installer](../../actions/workflows/build-windows.yml) run's artifacts) and run it.
+No administrator rights are required; the app installs per-user and runs in your session.
+
+> **Unsigned build notice:** v1.0 is not code-signed yet, so Windows SmartScreen may show
+> "Windows protected your PC." Choose **More info → Run anyway** to proceed. A signed build will
+> remove this warning in a later release.
+
 ## Building (Windows)
 
 ### Prerequisites

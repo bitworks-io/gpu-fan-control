@@ -9,6 +9,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <PlatformTarget>x64</PlatformTarget>
     <ApplicationIcon>Assets\app.ico</ApplicationIcon>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
     <AssemblyName>LightweightAmdGpuFanControl</AssemblyName>
     <RootNamespace>LightweightAmdGpuFanControl</RootNamespace>
     <Author>Bitworks</Author>
@@ -21,12 +22,33 @@
     <EmbeddedResource Include="Assets\tray.ico" />
   </ItemGroup>
 
-  <!-- Copy ADLXCSharpBind.dll to output. Build ADLXCSharpBind first (C++ project in solution, requires Visual Studio on Windows). -->
-  <Target Name="CopyAdlxNativeLibs" AfterTargets="Build">
-    <PropertyGroup>
-      <AdlxBindPath>$(MSBuildThisFileDirectory)..\external\ADLX\Samples\csharp\x64\$(Configuration)\ADLXCSharpBind.dll</AdlxBindPath>
-    </PropertyGroup>
-    <Copy SourceFiles="$(AdlxBindPath)" DestinationFolder="$(OutputPath)" SkipUnchangedFiles="true" Condition="Exists('$(AdlxBindPath)')" />
+  <!--
+    Ship the native ADLX SWIG binding (ADLXCSharpBind.dll). Build the ADLX C++ project
+    (external\ADLX\Samples\csharp\csharp.sln, x64) BEFORE building this app; build.ps1 does this.
+    The managed wrapper P/Invokes into ADLXCSharpBind.dll, so it must be in the publish output
+    and the installer — the previous AfterBuild copy landed it in the build dir but NOT in publish\,
+    which shipped a broken installer. Using CopyToPublishDirectory fixes that.
+  -->
+  <PropertyGroup>
+    <AdlxBindPath>$(MSBuildThisFileDirectory)..\external\ADLX\Samples\csharp\x64\$(Configuration)\ADLXCSharpBind.dll</AdlxBindPath>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Content Include="$(AdlxBindPath)" Condition="Exists('$(AdlxBindPath)')">
+      <Link>ADLXCSharpBind.dll</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+  </ItemGroup>
+
+  <!--
+    Hard fail. The Content item above silently includes NOTHING if the path is wrong — the exact
+    trap that shipped a green-but-broken installer three times. This turns a missing native binding
+    into a loud build error instead.
+  -->
+  <Target Name="EnsureAdlxNativeBinding" BeforeTargets="Build;Publish">
+    <Error Condition="!Exists('$(AdlxBindPath)')"
+           Text="ADLXCSharpBind.dll not found at $(AdlxBindPath). Build external\ADLX\Samples\csharp\csharp.sln (x64/$(Configuration)) first (build.ps1 does this)." />
   </Target>
 
 </Project>

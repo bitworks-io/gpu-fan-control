@@ -5,11 +5,16 @@ on:
   push:
     branches:
       - main
+    tags:
+      - 'v*'
   pull_request:
 
 jobs:
   build:
     runs-on: windows-latest
+    env:
+      SIGN_CERT_BASE64: ${{ secrets.SIGN_CERT_BASE64 }}
+      SIGN_CERT_PASSWORD: ${{ secrets.SIGN_CERT_PASSWORD }}
 
     steps:
       - name: Checkout
@@ -35,6 +40,28 @@ jobs:
         run: |
           .\build.ps1
 
+      - name: Verify ADLX runtime binaries are present
+        shell: pwsh
+        run: |
+          $pub = "LightweightAmdGpuFanControl/bin/Release/net8.0-windows/win-x64/publish"
+          $required = @("ADLXCSharpBind.dll", "ADLXWrapper.dll", "LightweightAmdGpuFanControl.exe")
+          $missing = $required | Where-Object { -not (Test-Path (Join-Path $pub $_)) }
+          if ($missing) {
+            Write-Error "Missing required binaries in publish output: $($missing -join ', ')"
+            exit 1
+          }
+          Write-Host "All required ADLX binaries present in publish output."
+
+      - name: Sign installer
+        if: ${{ env.SIGN_CERT_BASE64 != '' }}
+        shell: pwsh
+        run: |
+          Write-Host "Code-signing cert secret present; signing installer."
+          # TODO(cert): decode $env:SIGN_CERT_BASE64 to a .pfx and run signtool sign
+          # /f cert.pfx /p $env:SIGN_CERT_PASSWORD /tr <timestamp-url> /fd sha256 /td sha256
+          # output\LightweightAmdGpuFanControl-Setup.exe
+          # No-op until the SIGN_CERT_BASE64 secret is configured.
+
       - name: Upload installer
         uses: actions/upload-artifact@v7
         with:
@@ -46,3 +73,21 @@ jobs:
         with:
           name: LightweightAmdGpuFanControl-publish
           path: LightweightAmdGpuFanControl\bin\Release\net8.0-windows\win-x64\publish\
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download installer artifact
+        uses: actions/download-artifact@v7
+        with:
+          name: LightweightAmdGpuFanControl-Setup
+          path: ./release
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ./release/LightweightAmdGpuFanControl-Setup.exe
+          generate_release_notes: true

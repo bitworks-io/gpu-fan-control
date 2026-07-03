@@ -2,7 +2,9 @@
 ; Author: Bitworks
 
 #define MyAppName "Lightweight AMD GPU Fan Control"
-#define MyAppVersion "1.0.0"
+#ifndef MyAppVersion
+  #define MyAppVersion "1.0.0"
+#endif
 #define MyAppPublisher "Bitworks"
 #define MyAppExeName "LightweightAmdGpuFanControl.exe"
 

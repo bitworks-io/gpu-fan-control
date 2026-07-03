@@ -19,6 +19,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\external\ADLX\Samples\csharp\ADLXWrapper\ADLXWrapper.csproj" />
+    <ProjectReference Include="..\LightweightAmdGpuFanControl.Core\LightweightAmdGpuFanControl.Core.csproj" />
     <EmbeddedResource Include="Assets\tray.ico" />
   </ItemGroup>
 

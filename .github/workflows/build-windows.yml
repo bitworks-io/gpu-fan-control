@@ -35,6 +35,10 @@ jobs:
         run: |
           choco install swig innosetup -y
 
+      - name: Run core unit tests
+        shell: pwsh
+        run: dotnet test LightweightAmdGpuFanControl.Tests/LightweightAmdGpuFanControl.Tests.csproj -c Release --nologo
+
       - name: Build installer
         shell: powershell
         run: |

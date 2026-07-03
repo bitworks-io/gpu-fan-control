@@ -16,13 +16,77 @@ public sealed class AdlFanControlBackend : IFanControlBackend
 
     private readonly LogService _logService;
     private AdlNativeApi? _api;
+    private readonly bool _ownsApi;
     private int _adapterIndex = -1;
     private int _overdriveVersion;
     private bool _useCustomFan;
 
+    /// <summary>Standard single-GPU constructor (owns the API instance).</summary>
     public AdlFanControlBackend(LogService logService)
     {
         _logService = logService;
+        _ownsApi = true;
+    }
+
+    /// <summary>
+    /// Per-adapter constructor for multi-GPU use. Does NOT own <paramref name="sharedApi"/>;
+    /// the caller (factory) is responsible for its lifetime.
+    /// The adapter must already be verified to support fan control.
+    /// </summary>
+    private AdlFanControlBackend(
+        AdlNativeApi sharedApi,
+        int adapterIndex,
+        int overdriveVersion,
+        bool useCustomFan,
+        LogService logService)
+    {
+        _api = sharedApi;
+        _adapterIndex = adapterIndex;
+        _overdriveVersion = overdriveVersion;
+        _useCustomFan = useCustomFan;
+        _logService = logService;
+        _ownsApi = false;
+    }
+
+    /// <summary>
+    /// Attempts to create a pre-initialized backend for <paramref name="adapterIndex"/>
+    /// using a shared (caller-owned) <paramref name="api"/> instance.
+    /// Returns null if the adapter does not support fan control.
+    /// </summary>
+    internal static AdlFanControlBackend? TryCreateForAdapter(
+        AdlNativeApi api, int adapterIndex, LogService logService)
+    {
+        if (api.OverdriveCaps(api.Context, adapterIndex, out var supported, out _, out var version) != AdlNativeApi.Ok || supported == 0)
+            return null;
+
+        if (version >= 7)
+        {
+            bool useCustomFan = false;
+            if (api.CustomFanCaps != null &&
+                api.CustomFanCaps(api.Context, adapterIndex, out var customSupported) == AdlNativeApi.Ok &&
+                customSupported != 0 &&
+                api.CustomFanGet != null &&
+                api.CustomFanSet != null)
+            {
+                useCustomFan = true;
+            }
+            else
+            {
+                var fan = new ADLODNFanControl();
+                if (api.OverdriveNFanControlGet(api.Context, adapterIndex, ref fan) != AdlNativeApi.Ok)
+                    return null;
+            }
+            logService.Log($"Created ADL OverdriveN backend for adapter {adapterIndex} (Overdrive {version}).");
+            return new AdlFanControlBackend(api, adapterIndex, version, useCustomFan, logService);
+        }
+
+        if (version == 5 && api.Overdrive5FanSpeedGet != null && api.Overdrive5FanSpeedSet != null)
+        {
+            logService.Log($"Created ADL Overdrive5 backend for adapter {adapterIndex}.");
+            return new AdlFanControlBackend(api, adapterIndex, version, false, logService);
+        }
+
+        return null;
     }
 
     public string BackendName => _overdriveVersion == 5 ? "ADL Overdrive5" : "ADL OverdriveN";
@@ -31,6 +95,10 @@ public sealed class AdlFanControlBackend : IFanControlBackend
 
     public bool Initialize()
     {
+        // Channels created via TryCreateForAdapter are already bound to a shared API and adapter.
+        if (_api != null && _adapterIndex >= 0)
+            return true;
+
         if (!AdlNativeApi.TryLoad(out _api, out var error) || _api == null)
         {
             _logService.Log($"ADL backend unavailable: {error}");
@@ -277,9 +345,10 @@ public sealed class AdlFanControlBackend : IFanControlBackend
 
     public void Dispose()
     {
-        // Safety net: return the fan to the driver's automatic curve before unloading the API.
+        // Safety net: return the fan to the driver's automatic curve before releasing the API.
         RestoreAutomaticFanControl();
-        _api?.Dispose();
+        if (_ownsApi)
+            _api?.Dispose();
         _api = null;
         _adapterIndex = -1;
         _overdriveVersion = 0;

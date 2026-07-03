@@ -21,6 +21,7 @@ public sealed class AdlxFanControlBackend : IFanControlBackend
 
     public string BackendName => "ADLX";
     public string AdapterName => _gpu?.Name ?? "AMD GPU";
+    public string GpuId => _gpu?.Name is { Length: > 0 } name ? $"ADLX:{name}" : "ADLX:GPU";
 
     public bool Initialize()
     {
@@ -86,8 +87,22 @@ public sealed class AdlxFanControlBackend : IFanControlBackend
         _fanController.SetFanPercent(Math.Clamp(percent, MinFanPercent, MaxFanPercent));
     }
 
+    public void RestoreAutomaticFanControl()
+    {
+        try
+        {
+            _fanController?.RestoreAutomatic();
+        }
+        catch (Exception ex)
+        {
+            _logService.Log("ADLX restore-to-automatic failed.", ex);
+        }
+    }
+
     public void Dispose()
     {
+        // Safety net: return the fan to the driver's automatic curve before releasing the API.
+        RestoreAutomaticFanControl();
         _adlx?.Dispose();
         _adlx = null;
         _fanController = null;

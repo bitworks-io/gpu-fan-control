@@ -78,11 +78,10 @@ public class PreferencesForm : Form
 
     private void OkButton_Click(object? sender, EventArgs e)
     {
-        var settings = new AppSettings
-        {
-            TargetTempC = (int)_targetTempControl.Value,
-            StartWithWindows = _startWithWindowsCheck.Checked
-        };
+        // Load-modify-save so we preserve fields this form doesn't expose (min/max, GPU list, mode).
+        var settings = _settingsService.Load();
+        settings.TargetTempC = (int)_targetTempControl.Value;
+        settings.StartWithWindows = _startWithWindowsCheck.Checked;
         _settingsService.Save(settings);
         _startupService.SetEnabled(settings.StartWithWindows);
     }

@@ -33,6 +33,14 @@ public sealed class SystrayApplicationContext : ApplicationContext
         _notifyIcon.DoubleClick += (_, _) => ShowPreferences();
         _notifyIcon.ContextMenuStrip = CreateContextMenu();
         _fanControlService.Start(this, _notifyIcon);
+
+        // Best-effort restore of automatic fan control on any exit path, including crashes and
+        // logoff/shutdown. A hard kill (Task Manager / power loss) cannot run these; control is
+        // re-established on next launch and the driver reclaims it on reset.
+        AppDomain.CurrentDomain.ProcessExit += (_, _) => _fanControlService.RestoreAll();
+        AppDomain.CurrentDomain.UnhandledException += (_, _) => _fanControlService.RestoreAll();
+        Application.ThreadException += (_, _) => _fanControlService.RestoreAll();
+        Microsoft.Win32.SystemEvents.SessionEnding += (_, _) => _fanControlService.RestoreAll();
     }
 
     private static Icon CreateTrayIcon()

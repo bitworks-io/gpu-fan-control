@@ -31,6 +31,7 @@ internal sealed class AdlNativeApi : IDisposable
         Overdrive5TemperatureGet = GetDelegate<ADL2_Overdrive5_Temperature_Get>(required: false);
         Overdrive5FanSpeedGet = GetDelegate<ADL2_Overdrive5_FanSpeed_Get>(required: false);
         Overdrive5FanSpeedSet = GetDelegate<ADL2_Overdrive5_FanSpeed_Set>(required: false);
+        Overdrive5FanSpeedToDefault = GetDelegate<ADL2_Overdrive5_FanSpeedToDefault_Set>(required: false);
     }
 
     public IntPtr Context => _context;
@@ -50,6 +51,7 @@ internal sealed class AdlNativeApi : IDisposable
     public ADL2_Overdrive5_Temperature_Get? Overdrive5TemperatureGet { get; }
     public ADL2_Overdrive5_FanSpeed_Get? Overdrive5FanSpeedGet { get; }
     public ADL2_Overdrive5_FanSpeed_Set? Overdrive5FanSpeedSet { get; }
+    public ADL2_Overdrive5_FanSpeedToDefault_Set? Overdrive5FanSpeedToDefault { get; }
 
     public static bool TryLoad(out AdlNativeApi? api, out string error)
     {
@@ -155,6 +157,9 @@ internal sealed class AdlNativeApi : IDisposable
 
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     internal delegate int ADL2_Overdrive5_FanSpeed_Set(IntPtr context, int adapterIndex, int thermalControllerIndex, ref ADLFanSpeedValue fanSpeed);
+
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    internal delegate int ADL2_Overdrive5_FanSpeedToDefault_Set(IntPtr context, int adapterIndex, int thermalControllerIndex);
 }
 
 [StructLayout(LayoutKind.Sequential)]

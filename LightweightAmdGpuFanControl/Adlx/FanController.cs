@@ -113,4 +113,20 @@ public sealed class FanController
             return null;
         }
     }
+
+    /// <summary>
+    /// Returns the fan to the driver's automatic curve by resetting the manual fan tuning to the
+    /// state captured when this controller was initialized (i.e. the pre-app curve). Best-effort.
+    /// </summary>
+    public void RestoreAutomatic()
+    {
+        try
+        {
+            _manualFanTuning?.Reset();
+        }
+        catch
+        {
+            // Best-effort: nothing else we can do if the driver rejects the reset.
+        }
+    }
 }

@@ -1,25 +1,29 @@
+using System.Threading;
 using System.Windows.Forms;
+using LightweightAmdGpuFanControl.Control;
 using LightweightAmdGpuFanControl.Gpu;
 using LightweightAmdGpuFanControl.Models;
 
 namespace LightweightAmdGpuFanControl.Services;
 
 /// <summary>
-/// Polls GPU temperature and adjusts fan speed (20-85%) to maintain target temp.
+/// Polls GPU temperature and applies the <see cref="FanControlPolicy"/> decision each interval,
+/// and restores automatic fan control on shutdown or repeated sensor-read failure.
 /// </summary>
 public class FanControlService
 {
     private const int PollIntervalMs = 2500;
-    private const int MinFanPercent = 20;
-    private const int MaxFanPercent = 85;
-    private const int RampTempRange = 25; // Ramp from target to target+25°C
 
     private readonly SettingsService _settingsService;
     private readonly LogService _logService;
     private readonly FanControlTestService _fanControlTest = new();
+    private readonly FanControlPolicy _policy = new();
+
     private System.Threading.Timer? _timer;
     private IFanControlBackend? _backend;
-    private bool _controlEnabled;
+    private readonly PolicyState _state = new();
+    private SynchronizationContext? _uiContext;
+    private volatile bool _controlEnabled;
     private bool _disposed;
 
     public FanControlService(SettingsService settingsService, LogService logService)
@@ -28,8 +32,12 @@ public class FanControlService
         _logService = logService;
     }
 
+    /// <summary>The active backend, exposed for live status readout in the UI (may be null).</summary>
+    public IFanControlBackend? Backend => _backend;
+
     public void Start(SystrayApplicationContext context, NotifyIcon notifyIcon)
     {
+        _uiContext = SynchronizationContext.Current;
         _backend = FanControlBackendFactory.Create(_logService);
         if (_backend == null)
         {
@@ -40,21 +48,34 @@ public class FanControlService
             return;
         }
 
-        if (!_fanControlTest.RunTest(_backend, _logService))
+        // Run the hardware self-test off the UI thread so app launch is not blocked ~4s.
+        var backend = _backend;
+        System.Threading.Tasks.Task.Run(() =>
         {
-            _logService.Log("Startup fan control test failed.");
-            notifyIcon.BalloonTipClicked += (_, _) => OpenHelp();
-            notifyIcon.ShowBalloonTip(8000, "Fan control may not work",
-                "The fan control test failed. AMD Adrenalin may need Manual Tuning enabled. Right-click → Help for steps.",
-                ToolTipIcon.Warning);
-            _controlEnabled = false;
-        }
-        else
-        {
-            _controlEnabled = true;
-        }
+            bool ok = _fanControlTest.RunTest(backend, _logService);
+            _controlEnabled = ok;
+            if (!ok)
+            {
+                _logService.Log("Startup fan control test failed.");
+                PostToUi(() =>
+                {
+                    notifyIcon.BalloonTipClicked += (_, _) => OpenHelp();
+                    notifyIcon.ShowBalloonTip(8000, "Fan control may not work",
+                        "The fan control test failed. AMD Adrenalin may need Manual Tuning enabled. Right-click → Help for steps.",
+                        ToolTipIcon.Warning);
+                });
+            }
+        });
 
         _timer = new System.Threading.Timer(_ => PollAndAdjust(), null, 1000, PollIntervalMs);
+    }
+
+    private void PostToUi(Action action)
+    {
+        if (_uiContext != null)
+            _uiContext.Post(_ => action(), null);
+        else
+            action();
     }
 
     private static void OpenHelp()
@@ -76,8 +97,22 @@ public class FanControlService
         _timer?.Change(System.Threading.Timeout.Infinite, System.Threading.Timeout.Infinite);
         _timer?.Dispose();
         _timer = null;
+        RestoreAll();
         _backend?.Dispose();
         _backend = null;
+    }
+
+    /// <summary>Hand fan control back to the driver's automatic curve. Idempotent, best-effort.</summary>
+    public void RestoreAll()
+    {
+        try
+        {
+            _backend?.RestoreAutomaticFanControl();
+        }
+        catch (Exception ex)
+        {
+            _logService.Log("Restore-to-automatic failed.", ex);
+        }
     }
 
     private void PollAndAdjust()
@@ -89,23 +124,17 @@ public class FanControlService
         {
             var settings = _settingsService.Load();
             var temp = _backend.GetTemperatureC();
-            if (!temp.HasValue) return;
+            var decision = _policy.Decide(new TempReading(temp), settings, _state);
 
-            var target = settings.TargetTempC;
-            int percent;
-
-            if (temp.Value < target)
+            if (decision.Action == FanAction.RelinquishToAuto)
             {
-                percent = MinFanPercent;
+                _backend.RestoreAutomaticFanControl();
+                _logService.Log("Sensor read failed repeatedly; relinquished fan control to driver automatic.");
             }
             else
             {
-                var excess = temp.Value - target;
-                percent = MinFanPercent + (int)(excess * (MaxFanPercent - MinFanPercent) / RampTempRange);
-                percent = Math.Clamp(percent, MinFanPercent, MaxFanPercent);
+                _backend.SetFanPercent(decision.Percent);
             }
-
-            _backend.SetFanPercent(percent);
         }
         catch (Exception ex)
         {

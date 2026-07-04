@@ -176,8 +176,10 @@ public class FanControlService
         {
             _channelSet?.Dispose(); // restores every channel to auto, then tears down the session
             _channelSet = null;
+            // Clear channels under the same lock as the teardown so a concurrent RestoreAll()
+            // cannot iterate backends whose native session has just been freed.
+            _channels = new List<ControlChannel>();
         }
-        _channels = new List<ControlChannel>();
     }
 
     /// <summary>Hand every GPU back to the driver's automatic curve. Idempotent, best-effort.</summary>
@@ -228,7 +230,19 @@ public class FanControlService
                 foreach (var channel in _channels)
                 {
                     bool enabled = enabledIds.Contains(channel.Backend.GpuId);
-                    statuses.Add(AdjustChannel(channel, settings, enabled));
+                    try
+                    {
+                        statuses.Add(AdjustChannel(channel, settings, enabled));
+                    }
+                    catch (Exception ex)
+                    {
+                        // Isolate per-GPU failures: one channel's native error must not starve
+                        // the others (a throwing primary GPU could otherwise leave a secondary
+                        // GPU uncontrolled and overheating).
+                        _logService.Log($"Fan control failed for {channel.Backend.AdapterName}.", ex);
+                        statuses.Add(new GpuStatus(channel.Backend.AdapterName, channel.Backend.GpuId,
+                            enabled, false, null, null, null));
+                    }
                 }
             }
 

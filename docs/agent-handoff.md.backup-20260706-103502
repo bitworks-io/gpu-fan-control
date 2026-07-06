@@ -105,10 +105,3 @@ Cannot be done on this machine. Run on a Windows box with a supported AMD GPU:
 7. (If ADL/legacy hardware available) primary-GPU control works via the ADL fallback.
 
 Latest installer for testing: CI run `28686185843` artifact `LightweightAmdGpuFanControl-Setup` (also saved locally at `~/Downloads/LightweightAmdGpuFanControl-v1.0/`).
-
-## Context Handoff Hygiene
-
-- Keep durable context short and decision-focused: current architecture, contracts, operational assumptions, verification commands, known risks, and unresolved blockers.
-- Link to detailed logs, screenshots, traces, reports, or release artifacts instead of pasting bulky output.
-- Move exploratory notes, abandoned approaches, and raw command output out of this document unless they explain a current risk or decision.
-- When a chat grows long, summarize only the accepted decisions, changed files, verification evidence, and remaining work needed for the next agent to continue safely.

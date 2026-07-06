@@ -26,10 +26,9 @@ This repository captures the Codex working environment and the practices expecte
 
 ### Parallel Agent Default
 
-For this project, the user authorizes Codex and Claude Code to use parallel sub-agents by default when work splits into genuinely independent scopes — most naturally read-only ones. Fan-out pays off for separable work; it is a poor fit for tightly-coupled changes, where sub-agents that share files, types, or invariants duplicate effort and multiply token cost for little gain. Parallelize the separable parts and perform coupled edits serially under one owner.
+For this project, the user explicitly authorizes Codex to use parallel sub-agents by default for non-trivial work when tasks can be split into independent research, implementation, testing, security, documentation, or release-readiness scopes. Keep one integrating owner, use bounded scopes, and avoid overlapping write areas.
 
-- Parallelize freely for read-only or separable work: research, codebase exploration, documentation lookup, review, testing, security analysis, and release-readiness checks.
-- Perform coupled implementation serially under one integrating owner. Delegate code changes in parallel only when the write areas are genuinely disjoint.
+- Use parallel agents when work can be split into independent research, architecture, implementation, testing, debugging, security, documentation, or release-readiness tasks.
 - Keep one owner responsible for integration and final judgment.
 - Give agents bounded scopes, explicit outputs, and disjoint write areas when code changes are delegated.
 - Treat security and architecture reviews as first-class work for production-facing changes, not optional cleanup.
@@ -39,7 +38,7 @@ For this project, the user authorizes Codex and Claude Code to use parallel sub-
 
 - Keep the main chat as the integrating owner; use sub-agents for bounded sidecar work that can return compact findings or scoped patches.
 - Delegate with a narrow context packet: objective, relevant files or paths, constraints, expected output, and verification needs. Do not fork full chat context unless the sub-agent truly needs it.
-- Prefer project-scoped sub-agents when available — `.codex/agents/` for Codex and the mirrored `.claude/agents/` for Claude Code: `codebase_explorer`, `docs_researcher`, `implementation_worker`, `reviewer`, and `verifier`. Brief them with the reusable prompt packets in `.codex/prompts/` (codebase-exploration, docs-source-review, focused-review, verification-packet, context-health-triage, session-handoff).
+- Prefer project-scoped agents in `.codex/agents/` when available: `codebase_explorer`, `docs_researcher`, `implementation_worker`, `reviewer`, and `verifier`. Brief them with the reusable prompt packets in `.codex/prompts/` (codebase-exploration, docs-source-review, focused-review, verification-packet, context-health-triage, session-handoff).
 - Ask sub-agents for concise file-referenced output. Put long logs, screenshots, traces, and generated reports in durable files or artifacts instead of the main transcript.
 - Close completed sub-agents and summarize only accepted findings, changed files, verification evidence, and remaining risks in the main chat.
 - Do not treat chat history as a source of truth; durable state lives in `docs/agent-handoff.md` and `docs/verification-evidence.md`.
@@ -49,11 +48,9 @@ For this project, the user authorizes Codex and Claude Code to use parallel sub-
 - Proactively suggest missing official or third-party plugins, MCP servers, skills, connectors, browser tools, design tools, test runners, security scanners, observability tools, or domain-specific CLIs that would materially improve planning, implementation, testing, review, release, or operations.
 - Do not assume the user already knows which capabilities can or should be enabled; call out concrete benefits, setup cost, trust/security implications, and whether the capability is optional or important for the current work.
 - Credential or account requirements are not a reason to omit a useful recommendation; they are a reason to clearly label setup, approval, data exposure, and trust implications before enabling the capability.
-- Multi-account git identity (pinning each repo to the correct GitHub account via SSH host aliases so pushes never depend on the active `gh` account) follows `docs/git-identity.md`. Machine-specific account rosters, key fingerprints, and repo mappings live in the private overlay (`$CODEX_ENV_PRIVATE_OVERLAY`), never in this public baseline.
 - Prefer project-relevant recommendations over broad lists. Tie suggestions to the project type, tech stack, files present in the repo, current task, and observed workflow gaps.
 - Do not silently install, enable, authenticate, or connect account-level services. Ask before enabling connectors, cloud services, third-party plugins, tools that require credentials, or tools that send code, telemetry, prompts, repository data, or user data outside the local machine.
 - When a capability is useful but unavailable, name the capability, explain why it helps, and give the smallest safe next step to evaluate or install it.
-- Claude Code sessions also auto-discover the Agent Skills in `.claude/skills/`, alongside the sub-agent pointers above; no separate invocation step is needed.
 
 ## Engineering Standards
 

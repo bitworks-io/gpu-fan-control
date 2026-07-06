@@ -44,10 +44,3 @@ gh run download <run-id> -n LightweightAmdGpuFanControl-Setup
 
 - Installer artifact: CI run `28686185843`, artifact `LightweightAmdGpuFanControl-Setup`; local copy at `~/Downloads/LightweightAmdGpuFanControl-v1.0/`.
 - Full Phase 5 hardware checklist lives in `docs/agent-handoff.md` → "Remaining Work".
-
-## Evidence Hygiene
-
-- Preserve acceptance proof, command names, dates, environments, skipped checks, and residual risk.
-- Do not paste full logs, secrets, tokens, customer data, transient cache paths, or noisy command output.
-- Store large artifacts in a project-appropriate artifact location and link them here with a short interpretation.
-- Prefer one concise acceptance pass per meaningful change over repeating the same proof in multiple sections.

@@ -2,6 +2,41 @@ using System.Runtime.InteropServices;
 
 namespace LightweightAmdGpuFanControl.Gpu.Adl;
 
+/// <summary>
+/// net48 has no System.Runtime.InteropServices.NativeLibrary (added in .NET Core 3.0). Minimal
+/// LoadLibrary/GetProcAddress/FreeLibrary shim covering the three members AdlNativeApi needs.
+/// </summary>
+internal static class NativeLibrary
+{
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern IntPtr LoadLibrary(string lpFileName);
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Ansi, SetLastError = true, BestFitMapping = false, ThrowOnUnmappableChar = true)]
+    private static extern IntPtr GetProcAddress(IntPtr hModule, string procName);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool FreeLibrary(IntPtr hModule);
+
+    public static bool TryLoad(string libraryPath, out IntPtr handle)
+    {
+        handle = LoadLibrary(libraryPath);
+        return handle != IntPtr.Zero;
+    }
+
+    public static bool TryGetExport(IntPtr handle, string name, out IntPtr address)
+    {
+        address = GetProcAddress(handle, name);
+        return address != IntPtr.Zero;
+    }
+
+    public static void Free(IntPtr handle)
+    {
+        if (handle != IntPtr.Zero)
+            FreeLibrary(handle);
+    }
+}
+
 internal sealed class AdlNativeApi : IDisposable
 {
     public const int Ok = 0;

@@ -79,8 +79,11 @@ if (-not $SkipAdlxBindings) {
     }
 }
 
-Write-Host "Step 2: Publishing application..." -ForegroundColor Cyan
-& dotnet publish "$Root\LightweightAmdGpuFanControl\LightweightAmdGpuFanControl.csproj" -c $Configuration -r win-x64 --self-contained false -v m -p:Version=$Version
+Write-Host "Step 2: Publishing application (net48; uses the in-box .NET Framework 4.8)..." -ForegroundColor Cyan
+# Target .NET Framework 4.8, which ships in-box on Windows 10 1903+ / Windows 11 — so the
+# installer needs NO runtime download and NO admin rights. Publish output lands in
+# bin\Release\net48\publish\ (no runtime identifier, not self-contained).
+& dotnet publish "$Root\LightweightAmdGpuFanControl\LightweightAmdGpuFanControl.csproj" -c $Configuration -v m -p:Version=$Version
 if ($LASTEXITCODE -ne 0) { throw "Publish failed" }
 
 if (-not $SkipInstaller) {

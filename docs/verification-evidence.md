@@ -40,10 +40,39 @@ gh run download <run-id> -n LightweightAmdGpuFanControl-Setup
 - Skipped checks and reason: installer signing (no cert secret); all on-hardware behavior (no AMD GPU on this macOS host).
 - Residual risk: **all runtime fan behavior, restore-to-auto, and the no-admin assumption are unverified** — they require a real AMD Windows PC (Phase 5 checklist in `agent-handoff.md`).
 
+## 2026-07-12 Phase 5 — first hardware test (RX 7900 XTX) + fixes
+
+- **Hardware finding:** fan increased when raising min fan speed but would not slow back down when
+  lowering it. Root-caused (static analysis, all ADLX paths read) to the Manual-mode ratchet in
+  `SettingsService.Validate`; two UI/packaging issues also reported. Fixes staged, **not yet
+  hardware-re-tested**.
+- **Automated proof (this turn, macOS):** new regression test
+  `SettingsServiceTests.Manual_fan_setpoint_survives_raising_then_lowering_min_fan` — watched it FAIL
+  (`Expected 50, Actual 60`) pre-fix, PASS post-fix. Full suite `dotnet test …` → **Passed: 27, Failed: 0**.
+- **Windows-only changes (CI-verify pending):** `FanController` percent-native curve + diagnostic
+  logging; `PreferencesForm` TableLayoutPanel rework + `Program.cs` PerMonitorV2; `build.ps1`
+  self-contained. None buildable on macOS.
+- **Still BLOCKED:** on-hardware re-test of all three fixes + the original Phase 5 checklist.
+  Diagnostic build writes fan-apply details to `%LOCALAPPDATA%/Bitworks/LightweightAmdGpuFanControl/log.txt`.
+
+## 2026-07-06 Re-verification (release-mechanics prep)
+
+- Non-hardware evidence re-confirmed green before staging the release:
+  - Unit tests re-run (`DOTNET_ROLL_FORWARD=Major dotnet test …`) → **Passed: 26, Failed: 0** (net8.0).
+  - CI run `28714260647` for commit `8247ca0` → conclusion **success**.
+  - Version consistency confirmed `1.0.0` across `VERSION`, `.csproj`, `.iss`, `AboutForm.cs`.
+  - Local installer artifact re-verified: `~/Downloads/LightweightAmdGpuFanControl-v1.0/LightweightAmdGpuFanControl-Setup.exe`
+    → PE32 GUI, 2,474,080 bytes, SHA-256 `43c1d892103ee33299fd306adecd575a80352045dc280c1ea4a5fb2e436a2fef`.
+    (Built from CI run `28686185843` / commit `fe4e89c` — a smoke sample, **not** the release binary;
+    the v1.0.0 installer is built fresh from the tagged commit.)
+- Still **BLOCKED**: all Phase 5 on-hardware acceptance (no AMD GPU on this macOS host).
+- Release steps are now staged in `docs/release-runbook.md` (tag intentionally uncut).
+
 ## Evidence Notes
 
 - Installer artifact: CI run `28686185843`, artifact `LightweightAmdGpuFanControl-Setup`; local copy at `~/Downloads/LightweightAmdGpuFanControl-v1.0/`.
 - Full Phase 5 hardware checklist lives in `docs/agent-handoff.md` → "Remaining Work".
+- Release mechanics / one-action tag procedure: `docs/release-runbook.md`.
 
 ## Evidence Hygiene
 

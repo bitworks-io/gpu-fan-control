@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using LightweightAmdGpuFanControl.Models;
 using LightweightAmdGpuFanControl.Services;
 using Xunit;
 
@@ -49,6 +50,37 @@ public class SettingsServiceTests
         Assert.Equal(3, s.HysteresisC);
         Assert.Equal(90, s.CriticalTempC);
         Assert.NotNull(s.Gpus);
+    }
+
+    [Fact]
+    public void Manual_fan_setpoint_survives_raising_then_lowering_min_fan()
+    {
+        // Regression (hardware-reported): in Manual mode, raising the minimum fan speed
+        // permanently ratcheted the manual setpoint upward — Validate clamped
+        // ManualFanPercent to the live Min/Max — so lowering Min again never brought the
+        // fan back down. The manual setpoint must be preserved; the policy clamps it to
+        // the curve bounds at runtime instead of destroying the stored value.
+        var path = TempPath();
+        var svc = new SettingsService(path);
+
+        var s = new AppSettings
+        {
+            Mode = FanMode.Manual,
+            ManualFanPercent = 50,
+            MinFanPercent = 20,
+            MaxFanPercent = 85
+        };
+        svc.Save(s);
+
+        // User raises the minimum fan speed above their manual setpoint.
+        s.MinFanPercent = 60;
+        svc.Save(s);
+        Assert.Equal(50, s.ManualFanPercent); // not ratcheted up to 60
+
+        // User lowers it back down — the manual setpoint is still what they chose.
+        s.MinFanPercent = 20;
+        svc.Save(s);
+        Assert.Equal(50, s.ManualFanPercent);
     }
 
     [Fact]

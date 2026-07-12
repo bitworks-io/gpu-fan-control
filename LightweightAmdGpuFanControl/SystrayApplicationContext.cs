@@ -43,6 +43,7 @@ public sealed class SystrayApplicationContext : ApplicationContext
         AppDomain.CurrentDomain.UnhandledException += (_, _) => _fanControlService.RestoreAll();
         Application.ThreadException += (_, _) => _fanControlService.RestoreAll();
         Microsoft.Win32.SystemEvents.SessionEnding += (_, _) => _fanControlService.RestoreAll();
+        TaskScheduler.UnobservedTaskException += (_, e) => { _fanControlService.RestoreAll(); e.SetObserved(); };
 
         // Live tooltip refresh (~2.5s matches poll interval).
         _tooltipTimer = new System.Windows.Forms.Timer { Interval = 2500, Enabled = true };
@@ -75,7 +76,7 @@ public sealed class SystrayApplicationContext : ApplicationContext
 
         // NotifyIcon.Text has a 63-character hard limit; truncate to avoid an exception.
         if (text.Length > 63)
-            text = text[..63];
+            text = text.Substring(0, 63);
 
         _notifyIcon.Text = text;
     }
@@ -182,7 +183,7 @@ public sealed class SystrayApplicationContext : ApplicationContext
         {
             Minimum = min,
             Maximum = max,
-            Value = Math.Clamp(currentValue, min, max),
+            Value = MathCompat.Clamp(currentValue, min, max),
             Location = new Point(170, 17),
             Width = 70
         };

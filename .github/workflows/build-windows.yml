@@ -47,7 +47,7 @@ jobs:
       - name: Verify ADLX runtime binaries are present
         shell: pwsh
         run: |
-          $pub = "LightweightAmdGpuFanControl/bin/Release/net8.0-windows/win-x64/publish"
+          $pub = "LightweightAmdGpuFanControl/bin/Release/net48/publish"
           $required = @("ADLXCSharpBind.dll", "ADLXWrapper.dll", "LightweightAmdGpuFanControl.exe")
           $missing = $required | Where-Object { -not (Test-Path (Join-Path $pub $_)) }
           if ($missing) {
@@ -76,7 +76,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: LightweightAmdGpuFanControl-publish
-          path: LightweightAmdGpuFanControl\bin\Release\net8.0-windows\win-x64\publish\
+          path: LightweightAmdGpuFanControl\bin\Release\net48\publish\
 
   release:
     needs: build

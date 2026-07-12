@@ -1,6 +1,6 @@
 # Codex Project Profile
 
-Project: /Users/braymond/Projects/amd-gpu-fan-control
+Project: Lightweight AMD GPU Fan Control
 Trust mode: full-auto
 Codex profile: full-auto-local
 Project type: desktop-app-service

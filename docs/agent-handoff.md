@@ -1,6 +1,6 @@
 # Agent Handoff
 
-Last reviewed: 2026-07-03
+Last reviewed: 2026-07-06
 
 This document is for the next implementation agent (Codex, Claude Code, or human). Keep it current when architecture, workflows, verification commands, release steps, or known risks change.
 
@@ -89,12 +89,34 @@ gh run download <id> -n LightweightAmdGpuFanControl-Setup         # get Setup.ex
 ## Commit And Release Guidance
 
 - Version single-sourced in `VERSION` (currently `1.0.0`); `build.ps1` and the installer read it. Tag-push `v*` triggers the CI `release` job (GitHub Release + Setup.exe).
+- **Release mechanics are staged in `docs/release-runbook.md`** (preconditions, the one-action tag/push, tag-target decision, curated-notes step, post-release verification, rollback). Tag is intentionally uncut pending Phase 5. `CHANGELOG.md` is drafted (v1.0.0, marked unreleased) — it must ride onto the commit that gets tagged.
 - Keep native-binding csproj guard + CI verify step intact — they are the guardrail against silently shipping a broken installer.
 - Branch `feature/v1.0-release-readiness`, draft PR #3 → main.
 
+## Phase 5 Progress (started 2026-07-12, Radeon RX 7900 XTX)
+
+First on-hardware test surfaced three issues; fixes are staged (uncommitted) and pending **one CI
+build → hardware re-test**:
+1. **Fan wouldn't slow down after lowering min fan (Manual mode).** Root cause: `SettingsService.Validate`
+   destructively clamped `ManualFanPercent` to the live Min/Max, ratcheting it up and never restoring it.
+   Fixed to clamp to the hard fan floor/ceiling only; the policy still clamps to the live curve at
+   decision time. Regression test `Manual_fan_setpoint_survives_raising_then_lowering_min_fan` (suite now 27).
+2. **Preferences dialog clipped/overlapped on the 4K display.** Root cause: absolute pixel layout +
+   AutoSize labels. Rebuilt `PreferencesForm` with a `TableLayoutPanel`; `Program.cs` DPI mode set to
+   `PerMonitorV2` to match the manifest.
+3. **.NET runtime download required.** Now **ported to .NET Framework 4.8** (in-box on Win10 1903+/11):
+   Core → netstandard2.0, app → net48, installer gains a .NET 4.8 presence check. No download, no admin.
+   (Superseded the interim self-contained approach.)
+
+Also, `FanController.SetFanPercent` was switched to the percent-native ADLX fan curve (removing a
+target-fan-speed unit bug) and given change-triggered diagnostic logging (path, capability flags,
+tuning-speed range, curve read-back) to `log.txt`, so the Auto-mode fan behaviour is captured in one
+hardware pass. The user was unsure which mode the failing test used; the Manual ratchet is the likely
+cause (it applies the same value regardless of ADLX path, explaining both "raise works" and "lower stuck").
+
 ## Remaining Work (Phase 5 — hardware, real AMD PC required)
 
-Cannot be done on this machine. Run on a Windows box with a supported AMD GPU:
+Re-test the fixes above on the RX 7900 XTX, plus the original checklist. Run on a Windows box with a supported AMD GPU:
 
 1. ADLX backend initializes (no missing-DLL error) from the installed build.
 2. Fan ramps and holds near the 65 °C core target under load.

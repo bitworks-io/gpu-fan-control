@@ -71,11 +71,11 @@ public class SettingsService
     /// <summary>Clamps every field to its supported range and enforces MinFanPercent &lt; MaxFanPercent.</summary>
     private static void Validate(AppSettings s)
     {
-        s.TargetTempC = Math.Clamp(s.TargetTempC, AppSettings.MinTargetTempC, AppSettings.MaxTargetTempC);
-        s.HysteresisC = Math.Clamp(s.HysteresisC, AppSettings.MinHysteresisC, AppSettings.MaxHysteresisC);
+        s.TargetTempC = MathCompat.Clamp(s.TargetTempC, AppSettings.MinTargetTempC, AppSettings.MaxTargetTempC);
+        s.HysteresisC = MathCompat.Clamp(s.HysteresisC, AppSettings.MinHysteresisC, AppSettings.MaxHysteresisC);
 
-        s.MinFanPercent = Math.Clamp(s.MinFanPercent, AppSettings.MinFanFloor, 70);
-        s.MaxFanPercent = Math.Clamp(s.MaxFanPercent, 40, AppSettings.MaxFanCeiling);
+        s.MinFanPercent = MathCompat.Clamp(s.MinFanPercent, AppSettings.MinFanFloor, 70);
+        s.MaxFanPercent = MathCompat.Clamp(s.MaxFanPercent, 40, AppSettings.MaxFanCeiling);
         if (s.MinFanPercent >= s.MaxFanPercent)
         {
             s.MaxFanPercent = Math.Min(AppSettings.MaxFanCeiling, s.MinFanPercent + 5);
@@ -84,9 +84,14 @@ public class SettingsService
         }
 
         var criticalMin = Math.Max(s.TargetTempC + 10, 50);
-        s.CriticalTempC = Math.Clamp(s.CriticalTempC, criticalMin, 100);
+        s.CriticalTempC = MathCompat.Clamp(s.CriticalTempC, criticalMin, 100);
 
-        s.ManualFanPercent = Math.Clamp(s.ManualFanPercent, s.MinFanPercent, s.MaxFanPercent);
+        // Clamp the manual setpoint to the HARD fan bounds only, never to the live Min/Max.
+        // Clamping to Min/Max here destroyed the stored value: raising Min ratcheted the
+        // setpoint up and lowering Min never restored it (hardware-reported "fan won't slow
+        // down"). FanControlPolicy clamps ManualFanPercent to the live [Min,Max] at decision
+        // time, so runtime safety is preserved without mutating the user's chosen value.
+        s.ManualFanPercent = MathCompat.Clamp(s.ManualFanPercent, AppSettings.MinFanFloor, AppSettings.MaxFanCeiling);
 
         s.Gpus ??= new List<GpuConfig>();
     }

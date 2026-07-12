@@ -41,7 +41,7 @@ public sealed class AdlxFanControlBackend : IFanControlBackend
             if (gpu == null)
                 return null;
 
-            var fanController = new FanController(session.SystemServices);
+            var fanController = new FanController(session.SystemServices, logService);
             if (!fanController.Initialize(gpu))
                 return null;
 
@@ -94,7 +94,7 @@ public sealed class AdlxFanControlBackend : IFanControlBackend
 
     public void SetFanPercent(int percent)
     {
-        _fanController.SetFanPercent(Math.Clamp(percent, MinFanPercent, MaxFanPercent));
+        _fanController.SetFanPercent(MathCompat.Clamp(percent, MinFanPercent, MaxFanPercent));
     }
 
     public void RestoreAutomaticFanControl()

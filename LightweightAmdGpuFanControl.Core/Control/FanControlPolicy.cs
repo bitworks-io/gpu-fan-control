@@ -51,7 +51,7 @@ public sealed class FanControlPolicy
         }
         else if (s.Mode == FanMode.Manual)
         {
-            pct = Math.Clamp(s.ManualFanPercent, s.MinFanPercent, s.MaxFanPercent);
+            pct = MathCompat.Clamp(s.ManualFanPercent, s.MinFanPercent, s.MaxFanPercent);
         }
         else if (t < s.TargetTempC - s.HysteresisC)
         {
@@ -65,10 +65,10 @@ public sealed class FanControlPolicy
         else
         {
             // Dead-band between (Target - Hysteresis) and Target: hold to avoid hunting.
-            pct = Math.Clamp(state.PreviousFanPercent, s.MinFanPercent, s.MaxFanPercent);
+            pct = MathCompat.Clamp(state.PreviousFanPercent, s.MinFanPercent, s.MaxFanPercent);
         }
 
-        pct = Math.Clamp(pct, s.MinFanPercent, s.MaxFanPercent);
+        pct = MathCompat.Clamp(pct, s.MinFanPercent, s.MaxFanPercent);
         state.PreviousFanPercent = pct;
         return new FanDecision(FanAction.SetPercent, pct);
     }

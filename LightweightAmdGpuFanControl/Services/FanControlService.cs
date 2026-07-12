@@ -63,6 +63,11 @@ public class FanControlService
             notifyIcon.BalloonTipClicked += (_, _) => OpenHelp();
             notifyIcon.ShowBalloonTip(5000, "Lightweight AMD GPU Fan Control",
                 "Could not initialize AMD fan control. No supported AMD GPU, driver, or tuning API was found.", ToolTipIcon.Warning);
+            MessageBox.Show(
+                "No supported AMD GPU or compatible driver was found.\n\nEnsure AMD Software: Adrenalin Edition is installed and up to date, and that manual fan tuning is available. The app will keep running in the system tray.",
+                "AMD fan control unavailable",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Warning);
             return;
         }
 
@@ -215,10 +220,9 @@ public class FanControlService
         {
             var settings = _settingsService.Load();
             var detectedIds = _channels.Select(c => c.Backend.GpuId).ToList();
-            var enabledIds = GpuEnablement.Reconcile(detectedIds, settings)
+            var enabledIds = new HashSet<string>(GpuEnablement.Reconcile(detectedIds, settings)
                 .Where(g => g.Enabled)
-                .Select(g => g.GpuId)
-                .ToHashSet();
+                .Select(g => g.GpuId));
 
             var statuses = new List<GpuStatus>(_channels.Count);
 

@@ -222,7 +222,7 @@ public sealed class AdlFanControlBackend : IFanControlBackend
         if (_api == null || _adapterIndex < 0)
             throw new InvalidOperationException("ADL backend is not initialized.");
 
-        percent = Math.Clamp(percent, MinFanPercent, MaxFanPercent);
+        percent = MathCompat.Clamp(percent, MinFanPercent, MaxFanPercent);
 
         if (_overdriveVersion == 5)
         {

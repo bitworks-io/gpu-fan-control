@@ -39,18 +39,35 @@ public class PreferencesForm : Form
         MinimizeBox = false;
         MaximizeBox = false;
         ShowInTaskbar = false;
-        Size = new Size(430, 560);
+        AutoScaleMode = AutoScaleMode.Dpi;
+        AutoSize = true;
+        AutoSizeMode = AutoSizeMode.GrowAndShrink;
+        Padding = new Padding(12);
 
         var settings = _settingsService.Load();
 
-        int y = 18;
+        // ── Root layout ──────────────────────────────────────────────────────
+        // Two columns (labels | controls); every row auto-sizes to its content
+        // so the dialog grows/shrinks to fit under any DPI scale factor.
+        var table = new TableLayoutPanel
+        {
+            ColumnCount = 2,
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            Dock = DockStyle.Fill
+        };
+        table.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        table.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+
+        int row = 0;
 
         // ── Core GPU temperature target ──────────────────────────────────────
         var targetLabel = new Label
         {
             Text = "Core GPU temperature target (°C):",
-            Location = new Point(20, y + 3),
-            AutoSize = true
+            AutoSize = true,
+            Anchor = AnchorStyles.Left,
+            Margin = new Padding(3, 6, 12, 6)
         };
 
         _targetTempControl = new NumericUpDown
@@ -58,99 +75,133 @@ public class PreferencesForm : Form
             Minimum = AppSettings.MinTargetTempC,
             Maximum = AppSettings.MaxTargetTempC,
             Value = settings.TargetTempC,
-            Location = new Point(280, y),
-            Width = 70
+            Width = 70,
+            Anchor = AnchorStyles.Left,
+            Margin = new Padding(3, 3, 3, 3)
         };
-
-        y += 36;
+        table.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        table.Controls.Add(targetLabel, 0, row);
+        table.Controls.Add(_targetTempControl, 1, row);
+        row++;
 
         // ── Minimum fan speed ────────────────────────────────────────────────
         var minFanLabel = new Label
         {
             Text = "Minimum fan speed (%):",
-            Location = new Point(20, y + 3),
-            AutoSize = true
+            AutoSize = true,
+            Anchor = AnchorStyles.Left,
+            Margin = new Padding(3, 6, 12, 6)
         };
 
         _minFanControl = new NumericUpDown
         {
             Minimum = AppSettings.MinFanFloor,  // 20
             Maximum = 70,
-            Value = Math.Clamp(settings.MinFanPercent, AppSettings.MinFanFloor, 70),
-            Location = new Point(280, y),
-            Width = 70
+            Value = MathCompat.Clamp(settings.MinFanPercent, AppSettings.MinFanFloor, 70),
+            Width = 70,
+            Anchor = AnchorStyles.Left,
+            Margin = new Padding(3, 3, 3, 3)
         };
-
-        y += 36;
+        table.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        table.Controls.Add(minFanLabel, 0, row);
+        table.Controls.Add(_minFanControl, 1, row);
+        row++;
 
         // ── Maximum fan speed ────────────────────────────────────────────────
         var maxFanLabel = new Label
         {
             Text = "Maximum fan speed (%):",
-            Location = new Point(20, y + 3),
-            AutoSize = true
+            AutoSize = true,
+            Anchor = AnchorStyles.Left,
+            Margin = new Padding(3, 6, 12, 6)
         };
 
         _maxFanControl = new NumericUpDown
         {
             Minimum = 40,
             Maximum = AppSettings.MaxFanCeiling,  // 85
-            Value = Math.Clamp(settings.MaxFanPercent, 40, AppSettings.MaxFanCeiling),
-            Location = new Point(280, y),
-            Width = 70
+            Value = MathCompat.Clamp(settings.MaxFanPercent, 40, AppSettings.MaxFanCeiling),
+            Width = 70,
+            Anchor = AnchorStyles.Left,
+            Margin = new Padding(3, 3, 3, 3)
         };
+        table.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        table.Controls.Add(maxFanLabel, 0, row);
+        table.Controls.Add(_maxFanControl, 1, row);
+        row++;
 
-        y += 24;
         var maxFanHint = new Label
         {
             Text = "85% is the manufacturer-recommended maximum.",
             ForeColor = SystemColors.GrayText,
             Font = new Font(SystemFonts.DefaultFont.FontFamily, 7.5f),
-            Location = new Point(22, y),
-            AutoSize = true
+            AutoSize = true,
+            Anchor = AnchorStyles.Left,
+            Margin = new Padding(5, 0, 3, 6)
         };
-
-        y += 26;
+        table.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        table.Controls.Add(maxFanHint, 0, row);
+        table.SetColumnSpan(maxFanHint, 2);
+        row++;
 
         // ── Start with Windows ───────────────────────────────────────────────
         _startWithWindowsCheck = new CheckBox
         {
             Text = "Start with Windows",
             Checked = settings.StartWithWindows,
-            Location = new Point(20, y),
-            AutoSize = true
+            AutoSize = true,
+            Anchor = AnchorStyles.Left,
+            Margin = new Padding(3, 3, 3, 9)
         };
-
-        y += 32;
+        table.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        table.Controls.Add(_startWithWindowsCheck, 0, row);
+        table.SetColumnSpan(_startWithWindowsCheck, 2);
+        row++;
 
         // ── GPU list ─────────────────────────────────────────────────────────
         var gpuLabel = new Label
         {
             Text = "Controlled GPUs:",
-            Location = new Point(20, y),
-            AutoSize = true
+            AutoSize = true,
+            Anchor = AnchorStyles.Left,
+            Margin = new Padding(3, 3, 3, 3)
         };
-        y += 20;
+        table.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        table.Controls.Add(gpuLabel, 0, row);
+        table.SetColumnSpan(gpuLabel, 2);
+        row++;
 
         _gpuList = new CheckedListBox
         {
-            Location = new Point(20, y),
             Size = new Size(385, 80),
-            CheckOnClick = true
+            CheckOnClick = true,
+            Anchor = AnchorStyles.Left | AnchorStyles.Right,
+            Margin = new Padding(3, 3, 3, 9)
         };
         PopulateGpuList(settings);
-        y += 88;
+        table.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        table.Controls.Add(_gpuList, 0, row);
+        table.SetColumnSpan(_gpuList, 2);
+        row++;
 
         // ── Live status ──────────────────────────────────────────────────────
         _statusLabel = new Label
         {
-            Location = new Point(20, y),
-            Size = new Size(385, 52),
+            AutoSize = true,
+            // Reserve ~3 lines so the dialog doesn't resize as the 1s status timer flips
+            // between "Starting…", per-GPU lines, and "Paused…". Wraps at 385px; grows if
+            // more GPUs need more lines.
+            MinimumSize = new Size(385, 52),
+            MaximumSize = new Size(385, 0),
             ForeColor = SystemColors.GrayText,
-            Font = new Font(SystemFonts.DefaultFont.FontFamily, 8f)
+            Font = new Font(SystemFonts.DefaultFont.FontFamily, 8f),
+            Margin = new Padding(3, 3, 3, 9)
         };
         RefreshStatus();
-        y += 58;
+        table.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        table.Controls.Add(_statusLabel, 0, row);
+        table.SetColumnSpan(_statusLabel, 2);
+        row++;
 
         // ── Feedback link ────────────────────────────────────────────────────
         var feedbackNote = new Label
@@ -158,26 +209,34 @@ public class PreferencesForm : Form
             Text = "Feature requests welcome.",
             ForeColor = SystemColors.GrayText,
             Font = new Font(SystemFonts.DefaultFont.FontFamily, 7.5f),
-            Location = new Point(20, y),
-            AutoSize = true
+            AutoSize = true,
+            Anchor = AnchorStyles.Left,
+            Margin = new Padding(3, 3, 3, 0)
         };
-        y += 16;
+        table.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        table.Controls.Add(feedbackNote, 0, row);
+        table.SetColumnSpan(feedbackNote, 2);
+        row++;
 
         var feedbackLink = new LinkLabel
         {
             Text = "Send feedback / request a feature →",
-            Location = new Point(20, y),
-            AutoSize = true
+            AutoSize = true,
+            Anchor = AnchorStyles.Left,
+            Margin = new Padding(3, 0, 3, 9)
         };
         feedbackLink.LinkClicked += (_, _) => AppLinks.Open(AppLinks.ContactFormUrl);
-        y += 24;
+        table.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        table.Controls.Add(feedbackLink, 0, row);
+        table.SetColumnSpan(feedbackLink, 2);
+        row++;
 
         // ── Buttons row ──────────────────────────────────────────────────────
         var aboutButton = new Button
         {
             Text = "About…",
-            Location = new Point(20, y + 2),
-            Width = 80
+            Width = 80,
+            Margin = new Padding(3)
         };
         aboutButton.Click += (_, _) => new AboutForm().ShowDialog(this);
 
@@ -185,30 +244,38 @@ public class PreferencesForm : Form
         {
             Text = "Cancel",
             DialogResult = DialogResult.Cancel,
-            Location = new Point(250, y),
-            Width = 75
+            Width = 75,
+            Margin = new Padding(3)
         };
 
         var okButton = new Button
         {
             Text = "OK",
             DialogResult = DialogResult.OK,
-            Location = new Point(335, y),
-            Width = 75
+            Width = 75,
+            Margin = new Padding(3)
         };
         okButton.Click += OkButton_Click;
 
-        Controls.AddRange(new System.Windows.Forms.Control[]
+        // Right-aligned button flow; controls are added right-to-left so the
+        // resulting visual order reads About … Cancel  OK.
+        var buttonPanel = new FlowLayoutPanel
         {
-            targetLabel, _targetTempControl,
-            minFanLabel, _minFanControl,
-            maxFanLabel, _maxFanControl, maxFanHint,
-            _startWithWindowsCheck,
-            gpuLabel, _gpuList,
-            _statusLabel,
-            feedbackNote, feedbackLink,
-            aboutButton, cancelButton, okButton
-        });
+            FlowDirection = FlowDirection.RightToLeft,
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            Anchor = AnchorStyles.Right,
+            Margin = new Padding(3, 6, 3, 3)
+        };
+        buttonPanel.Controls.Add(okButton);
+        buttonPanel.Controls.Add(cancelButton);
+        buttonPanel.Controls.Add(aboutButton);
+
+        table.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        table.Controls.Add(buttonPanel, 0, row);
+        table.SetColumnSpan(buttonPanel, 2);
+
+        Controls.Add(table);
 
         AcceptButton = okButton;
         CancelButton = cancelButton;

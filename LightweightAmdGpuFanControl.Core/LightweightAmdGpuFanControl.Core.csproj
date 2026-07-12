@@ -1,11 +1,22 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
+  <!--
+    Targets netstandard2.0 so BOTH the net48 app (in-box runtime, no download) and the
+    net8.0 test project can reference this library. C# 'latest' + the IsExternalInit shim
+    (Compat.cs) let records/record structs and init accessors compile on netstandard2.0.
+  -->
   <PropertyGroup>
-    <TargetFramework>net8.0</TargetFramework>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>LightweightAmdGpuFanControl</RootNamespace>
     <AssemblyName>LightweightAmdGpuFanControl.Core</AssemblyName>
   </PropertyGroup>
+
+  <ItemGroup>
+    <!-- System.Text.Json is in-box on modern .NET but a NuGet package on netstandard2.0/net48. -->
+    <PackageReference Include="System.Text.Json" Version="8.0.5" />
+  </ItemGroup>
 
 </Project>

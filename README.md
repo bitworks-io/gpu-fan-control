@@ -1,91 +1,138 @@
 # Lightweight AMD GPU Fan Control
 
-**Author:** Bitworks
+**Publisher:** [Bitworks](https://bitworks.io)
 
-A Windows systray utility that monitors AMD GPU temperature and dynamically adjusts fan speed (20–85%) to maintain a configurable target temperature.
+A lightweight Windows systray utility that monitors AMD Radeon GPU temperature
+and dynamically adjusts fan speed to hold a configurable core-temperature
+target — a simpler, always-on alternative to the AMD Adrenalin fan-curve UI.
+
+<!-- TODO: add screenshot of the Preferences window / tray icon -->
+
+> ## ⚠️ Safety / Disclaimer
+>
+> This software directly controls your GPU's fan hardware. It enforces a
+> hard fan-speed **floor of 20%** and **ceiling of 85%**, and restores your
+> GPU to the driver's automatic fan control whenever the app exits cleanly.
+> Even so, **use it at your own risk**: monitor your GPU temperatures while
+> you get familiar with it, and if anything looks wrong, open AMD Software:
+> Adrenalin Edition and switch fan tuning back to **Automatic**. The
+> software is provided **without warranty of any kind**, per the terms of
+> the [MIT License](LICENSE).
 
 ## Features
 
-- **Systray icon** – Runs in background with system tray icon
-- **Start Menu shortcut** – Created by the installer
-- **Start with Windows** – Optional preference (registry Run key)
-- **Target temperature** – Configurable (default 65°C)
-- **Default active mode** – Targets 65°C, disables Zero RPM when supported, keeps fans at a minimum 20%, and ramps earlier than stock GPU BIOS behavior
-- **Fan curve** – Min 20%, max 85%, ramps to keep GPU under target temp
-- **Hybrid AMD support** – Uses ADLX first for modern Radeon cards and ADL Overdrive fallback for Polaris/legacy cards
-- **Startup test** – Verifies fan control at 35% before enabling, with percent/RPM telemetry handling
-- **Help** – Integrated troubleshooting steps when control fails
+- **Systray icon** — runs quietly in the background with a tray icon and
+  context menu.
+- **Automatic fan curve** — ramps fan speed from a floor to a ceiling as GPU
+  core temperature rises toward and past your target, with a hysteresis
+  dead-band to avoid oscillation.
+- **Configurable target temperature** — default 65°C.
+- **Hard safety bounds** — fan speed is always kept between **20% (floor)**
+  and **85% (ceiling)**, regardless of settings.
+- **Over-temp safety latch** — jumps straight to the ceiling at/above a
+  critical temperature, with hysteretic recovery on cooldown.
+- **Sensor-loss safety** — after repeated failed temperature reads, hands
+  control back to the driver's automatic fan management.
+- **Multi-GPU support** — the primary GPU is controlled by default;
+  additional GPUs are opt-in per system.
+- **Manual fixed-speed mode**, plus an Automatic mode toggle and
+  Pause/Resume from the tray.
+- **Restore-to-automatic on exit** — every graceful shutdown path hands
+  control back to the driver's automatic fan management.
+- **Start with Windows** — optional, per-user (no admin required).
+- **Preferences window** — target temp, min/max fan, per-GPU enablement,
+  live status readout.
 
 ## Requirements
 
-- Windows 10/11 x64
-- AMD Radeon GPU
-  - RX 5000/6000/7000/9000-series: ADLX backend
-  - RX 470/480/500-series Polaris: ADL OverdriveN fallback
-  - Older cards: best-effort ADL Overdrive5 fallback when the driver exposes fan APIs
-- AMD Software: Adrenalin Edition (latest drivers)
-- .NET 8 runtime (included if built self-contained)
+- Windows 10 (version 1903 or later) or Windows 11, x64
+- An AMD Radeon GPU
+- **AMD Software: Adrenalin Edition** installed, with manual fan tuning
+  available for your GPU
 
-## Building (Windows)
+No additional runtime is required. The app targets **.NET Framework 4.8**,
+which ships in-box on Windows 10 1903+ and Windows 11 — there's nothing extra
+to download, and **no administrator rights are needed** to install or run it.
+
+## Installation
+
+1. Download `LightweightAmdGpuFanControl-Setup.exe` from the
+   [latest release](../../releases/latest).
+2. Run the installer. It installs per-user and does **not** require
+   administrator rights.
+3. **SmartScreen notice:** this build is not yet code-signed, so Windows
+   SmartScreen may show "Windows protected your PC." Click **More info →
+   Run anyway** to proceed. Signing is a planned fast-follow.
+
+## First Run / Usage
+
+After installation, the app runs in your system tray. Right-click the tray
+icon for:
+
+- **Preferences** — set your core-temp target, min/max fan bounds, and
+  enable/disable control per GPU (for multi-GPU systems).
+- **Automatic / Manual** — toggle between the automatic curve and a fixed
+  manual fan speed.
+- **Pause / Resume** — temporarily hand all GPUs back to the driver's
+  automatic fan control without exiting the app.
+- **Help** — opens troubleshooting steps if fan control isn't working.
+- **About** — app version and a feedback link.
+- **Exit** — closes the app and restores automatic fan control on every
+  controlled GPU.
+
+## Building From Source
+
+Building is Windows-only (the app targets `net48`, a Windows-only .NET
+Framework target).
 
 ### Prerequisites
 
-1. **Visual Studio 2022** – With C++ desktop and C# workloads
-2. **SWIG 4.0.2** – [swigwin](https://www.swig.org/download.html), add to PATH
-3. **.NET 8 SDK**
+1. **Visual Studio 2022 Build Tools** — C++ desktop and C# workloads
+2. **SWIG 4.0.2** — [swigwin](https://www.swig.org/download.html), added to `PATH`
+3. **Inno Setup 6** — for building the installer
 
-### Build Steps
-
-The easiest repeatable build is GitHub Actions (`.github/workflows/build-windows.yml`) on a Windows x64 runner. For local Windows builds:
-
-1. **Build ADLX C# bindings** (one-time, requires SWIG):
-   ```cmd
-   cd external\ADLX\Samples\csharp
-   msbuild csharp.sln -p:Configuration=Release -p:Platform=x64
-   ```
-   Or open `csharp.sln` in Visual Studio and build.
-
-2. **Build and publish the app**:
-   ```cmd
-   cd <workspace root>
-   dotnet publish LightweightAmdGpuFanControl\LightweightAmdGpuFanControl.csproj -c Release -r win-x64
-   ```
-
-3. **Create installer** (Inno Setup 6):
-   ```cmd
-   iscc installer\LightweightAmdGpuFanControl.iss
-   ```
-   Output: `output\LightweightAmdGpuFanControl-Setup.exe`
-
-Or run the automated build script:
+### Steps
 
 ```powershell
+git submodule update --init --recursive
 .\build.ps1
 ```
 
-See `docs/WINDOWS_BUILD.md` for Windows VM, Apple Silicon, and CI build guidance. See `docs/AMD_COMPATIBILITY.md` for GPU-generation and startup-test edge cases.
+`build.ps1` builds the ADLX C# bindings, publishes the app, and produces the
+Inno Setup installer under `output\`. See `docs/WINDOWS_BUILD.md` for
+Windows VM / Apple Silicon / CI build guidance, and
+`docs/AMD_COMPATIBILITY.md` for GPU-generation and startup-test notes.
 
-## Running
+## Troubleshooting: "Fan Control Not Working?"
 
-Run `LightweightAmdGpuFanControl.exe`. Right-click the systray icon for:
+1. Open **AMD Software: Adrenalin Edition** → **Performance** → **Tuning**.
+2. Under your GPU's Tuning Control, enable **Manual Tuning, Custom**.
+3. Set **Fan Tuning: ON** and **Zero RPM: OFF**.
+4. Click **Apply Changes**, then reopen Lightweight AMD GPU Fan Control's
+   Preferences.
+5. If it's still not working, check the log at
+   `%LOCALAPPDATA%\Bitworks\LightweightAmdGpuFanControl\log.txt` for errors.
 
-- **Preferences** – Set target temp, Start with Windows
-- **Help / Fan control not working** – Opens troubleshooting guide
-- **Exit**
+## Reporting Issues
 
-## Fan Control Not Working?
+- Bugs and problems: please open a
+  [GitHub issue](https://github.com/bitworks-io/amd-gpu-fan-control/issues)
+  on this repository.
+- Feature requests are welcome via GitHub issues, or through the
+  [Bitworks contact form](https://bitworks.io/contact-us/).
+- For security vulnerabilities, please see [SECURITY.md](SECURITY.md) instead
+  of opening a public issue.
 
-1. In AMD Adrenalin: **Performance** → **Tuning**
-2. GPU → Tuning Control: enable **Manual Tuning, Custom**
-3. Fan Tuning: **ON**, Zero RPM: **OFF**
-4. Apply Changes
+## Changelog
 
-## Compatibility Notes
-
-ADLX is AMD's modern API and is used first. ADLX may not support older GPUs such as RX 470/480, so the app falls back to ADL Overdrive APIs when available. Because older ADL paths can report fan telemetry as either percentage or RPM, startup validation checks control state, percent telemetry, and RPM response before enabling the control loop.
-
-Building on an Apple M4 should use either GitHub Actions or Windows 11 ARM in Parallels/VMware. Final fan-control testing requires a real Windows PC with an AMD Radeon GPU.
+See [CHANGELOG.md](CHANGELOG.md) for release history.
 
 ## License
 
-Uses AMD ADLX SDK (see `external/ADLX`). Application code by Bitworks.
+Licensed under the [MIT License](LICENSE). Copyright (c) 2026 Bitworks.
+
+## Third-Party
+
+This project uses the AMD ADLX SDK (included as a git submodule at
+`external/ADLX`) and an ADLX C# wrapper. See [NOTICE](NOTICE) for full
+third-party attributions and licensing terms.

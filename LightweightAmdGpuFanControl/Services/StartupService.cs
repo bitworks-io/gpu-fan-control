@@ -36,7 +36,7 @@ public class StartupService
 
             if (enabled)
             {
-                var exePath = Environment.ProcessPath ?? Application.ExecutablePath;
+                var exePath = Application.ExecutablePath;
                 if (!string.IsNullOrEmpty(exePath))
                     key.SetValue(ValueName, $"\"{exePath}\"");
             }

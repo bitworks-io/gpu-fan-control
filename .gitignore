@@ -16,3 +16,8 @@ installer/*.exe
 # Logs
 *.log
 log.txt
+CLAUDE.local.md
+.agent-reports/
+
+# Machine-local Codex tool config (contains absolute project paths)
+.codex/config.toml

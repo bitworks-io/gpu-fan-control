@@ -50,6 +50,12 @@ public class FanControlTestService
             log.Log("Fan test failed with exception.", ex);
             return false;
         }
+        finally
+        {
+            // Never leave the fan pinned at the test value — hand it back to the driver's
+            // automatic curve. The control loop takes over from there if the test passed.
+            try { backend.RestoreAutomaticFanControl(); } catch { }
+        }
     }
 
     private static bool IsPercentClose(int? percent) => percent is >= MinExpectedPercent and <= MaxExpectedPercent;

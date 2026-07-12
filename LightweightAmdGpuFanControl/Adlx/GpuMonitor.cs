@@ -26,6 +26,30 @@ public sealed class GpuMonitor
     }
 
     /// <summary>
+    /// Gets all AMD GPUs reported by ADLX.
+    /// </summary>
+    public IReadOnlyList<GPU> GetAllGpus()
+    {
+        var gpus = _systemServices.GetGPUs();
+        var result = new List<GPU>(gpus.Count);
+        for (int i = 0; i < gpus.Count; i++)
+            result.Add(gpus[i]);
+        return result;
+    }
+
+    /// <summary>
+    /// Gets the GPU at the specified index, or null if the index is out of range.
+    /// </summary>
+    public GPU? GetGpuAtIndex(int index)
+    {
+        var gpus = _systemServices.GetGPUs();
+        return index >= 0 && index < gpus.Count ? gpus[index] : null;
+    }
+
+    /// <summary>Returns the number of AMD GPUs visible to ADLX.</summary>
+    public int GetGpuCount() => _systemServices.GetGPUs().Count;
+
+    /// <summary>
     /// Gets the current GPU temperature in Celsius.
     /// </summary>
     /// <param name="gpu">The GPU to query. Use GetPrimaryGpu() if null.</param>

@@ -1,0 +1,70 @@
+# Changelog
+
+All notable changes to **Lightweight AMD GPU Fan Control** are documented here.
+Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
+this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [1.0.0] — Unreleased (pending Phase 5 hardware sign-off)
+
+First public release. A per-user Windows systray utility (.NET Framework 4.8
+WinForms) that drives AMD Radeon GPU fans toward a **core/edge temperature
+target** (default 65 °C), as a lightweight alternative to the AMD Adrenalin
+fan-curve UI. Publisher: Bitworks (bitworks.io).
+
+> **Not yet released.** All automated and CI checks are green, but the on-hardware
+> acceptance gate (Phase 5, real AMD Windows PC) is not yet signed off. Do not cut
+> the `v1.0.0` tag until Phase 5 passes — see [docs/release-runbook.md](docs/release-runbook.md).
+
+### Added
+
+- **Automatic fan curve** — ramps fan speed from Min% → Max% across
+  `target … target + 25 °C`, with a hysteresis dead-band to avoid oscillation.
+- **Over-temp safety** — emergency latch to the ceiling (85%) at or above the
+  critical temperature, with hysteretic un-latch on cooldown; overrides manual mode.
+- **Sensor-loss safety** — after 3 consecutive failed reads, relinquishes control
+  back to the driver's automatic fan management.
+- **Hard fan bounds** (manufacturer guidance) — floor **20%** (no Zero-RPM / passive
+  idle), ceiling **85%** (not user-raisable to 100%).
+- **Multi-GPU support** — primary GPU controlled by default; additional GPUs are
+  opt-in. Full multi-GPU on the modern **ADLX** path; the legacy **ADL** fallback
+  controls the **primary GPU only**.
+- **Manual fixed-speed mode** and an **Automatic mode** toggle from the tray.
+- **Pause / Resume** (tray) — hands all GPUs back to driver automatic.
+- **Restore-to-automatic on exit** — on every graceful shutdown path (ProcessExit,
+  UnhandledException, ThreadException, SessionEnding) and on Stop/Dispose, every
+  controlled GPU is returned to the driver's automatic fan control.
+- **Preferences window** — core-temp target, min/max fan, start-with-Windows,
+  per-GPU enable checklist, live status readout, and a feedback link.
+- **About dialog** with app version and a feedback/feature-request link to the
+  Bitworks contact form.
+- **Start with Windows** (per-user `HKCU\...\Run` entry, opt-in).
+- **Windows installer** (Inno Setup) that bundles the native ADLX binding
+  (`ADLXCSharpBind.dll`, `ADLXWrapper.dll`); installs per-user, no elevation required.
+
+### Changed
+
+- **Runtime: migrated to .NET Framework 4.8** — the app now targets .NET Framework 4.8, which
+  is in-box on Windows 10 1903+ and Windows 11. End users need **no separate runtime download
+  and no administrator rights**; the installer stays small since no runtime is bundled.
+
+### Fixed (during Phase 5 hardware validation, Radeon RX 7900 XTX)
+
+- **Manual fixed-speed mode: fan now slows back down.** Lowering the minimum fan speed left
+  the fan stuck high because the manual setpoint was destructively clamped *upward* when the
+  minimum rose and never restored when it fell. The setpoint is now preserved and clamped only
+  at decision time. (Covered by a regression test.)
+- **Fan apply uses the percent-native ADLX fan curve.** Removes a unit mismatch where the
+  target-fan-speed path was fed a percentage-range value where an RPM value was expected.
+- **Preferences window no longer clips/overlaps on high-DPI displays.** Rebuilt with a
+  table/flow layout that scales; DPI mode made consistent with the manifest.
+
+### Security / Operational notes
+
+- **Unsigned build.** Windows SmartScreen will warn on first run. Code-signing is a
+  gated CI hook (`SIGN_CERT_BASE64`) that is currently a no-op — no certificate yet.
+- Runs as `asInvoker` (no elevation); installer `PrivilegesRequired=lowest`. The
+  no-admin fan-set assumption is validated by Phase 5.
+- No network calls except user-initiated browser opens to bitworks.io. No telemetry,
+  no secrets.
+
+[1.0.0]: https://github.com/bitworks-io/amd-gpu-fan-control/releases/tag/v1.0.0

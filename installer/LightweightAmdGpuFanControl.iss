@@ -39,7 +39,7 @@ Name: "startup"; Description: "Start with Windows"; GroupDescription: "Startup:"
 Source: "..\LightweightAmdGpuFanControl\bin\Release\net48\publish\LightweightAmdGpuFanControl.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\LightweightAmdGpuFanControl\bin\Release\net48\publish\LightweightAmdGpuFanControl.exe.config"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\LightweightAmdGpuFanControl\bin\Release\net48\publish\*.dll"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs
-Source: "..\LightweightAmdGpuFanControl\bin\Release\net48\publish\*.json"; DestDir: "{app}"; Flags: ignoreversion
+; net48 publish produces no .json config files (runtimeconfig/deps are .NET Core concepts).
 Source: "..\LightweightAmdGpuFanControl\bin\Release\net48\publish\*.pdb"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs
 
 [Icons]

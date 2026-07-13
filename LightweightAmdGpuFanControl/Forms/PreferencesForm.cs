@@ -20,6 +20,7 @@ public class PreferencesForm : Form
     private CheckedListBox _gpuList = null!;
     private Label _statusLabel = null!;
     private System.Windows.Forms.Timer _statusTimer = null!;
+    private TableLayoutPanel _table = null!;
 
     // GPU items we actually populated; null means we showed the "Detecting…" placeholder.
     private List<GpuConfig>? _loadedGpus;
@@ -40,9 +41,9 @@ public class PreferencesForm : Form
         MaximizeBox = false;
         ShowInTaskbar = false;
         AutoScaleMode = AutoScaleMode.Dpi;
-        AutoSize = true;
-        AutoSizeMode = AutoSizeMode.GrowAndShrink;
         Padding = new Padding(12);
+        // NOTE: form size is set explicitly in OnLoad from the table's preferred size. A Dock=Fill
+        // TableLayoutPanel does not reliably grow an AutoSize form (it clipped the button row).
 
         var settings = _settingsService.Load();
 
@@ -148,7 +149,10 @@ public class PreferencesForm : Form
         _startWithWindowsCheck = new CheckBox
         {
             Text = "Start with Windows",
-            Checked = settings.StartWithWindows,
+            // Reflect the ACTUAL Run-key state (the installer can set it directly), not the
+            // settings.json value — otherwise the box shows unchecked after an install that
+            // enabled startup, and clicking OK would silently remove the installer's Run key.
+            Checked = _startupService.IsEnabled,
             AutoSize = true,
             Anchor = AnchorStyles.Left,
             Margin = new Padding(3, 3, 3, 9)
@@ -275,6 +279,7 @@ public class PreferencesForm : Form
         table.Controls.Add(buttonPanel, 0, row);
         table.SetColumnSpan(buttonPanel, 2);
 
+        _table = table;
         Controls.Add(table);
 
         AcceptButton = okButton;
@@ -289,6 +294,20 @@ public class PreferencesForm : Form
             _statusTimer.Stop();
             _statusTimer.Dispose();
         };
+    }
+
+    protected override void OnLoad(EventArgs e)
+    {
+        base.OnLoad(e);
+        // Size the dialog to the table's full (DPI-scaled) content here, where PreferredSize is
+        // accurate. A Dock=Fill panel does not reliably grow an AutoSize form, which previously
+        // clipped the bottom button row.
+        var pref = _table.PreferredSize;
+        ClientSize = new Size(pref.Width + Padding.Horizontal, pref.Height + Padding.Vertical);
+
+        // Re-center on the working area: CenterScreen positioned the form at its pre-resize size.
+        var wa = Screen.FromControl(this).WorkingArea;
+        Location = new Point(wa.X + (wa.Width - Width) / 2, wa.Y + (wa.Height - Height) / 2);
     }
 
     private void PopulateGpuList(AppSettings settings)

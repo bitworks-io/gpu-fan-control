@@ -119,28 +119,34 @@ User Access Administrator) on the subscription so you can also assign roles in s
    preferred, but the secret path is the lowest-friction way to get signing working if flexible
    FICs give you trouble.)*
 
-6. **Grant the signing role.** On the **certificate profile** (most-scoped) →
-   *Access control (IAM)* → *Add role assignment* → role
-   **"Artifact Signing Certificate Profile Signer"** → assign to the app registration from
-   step 5. CLI equivalent:
-   ```bash
-   az role assignment create \
-     --assignee <app-client-id> \
-     --role "Artifact Signing Certificate Profile Signer" \
-     --scope "/subscriptions/<sub-id>/resourceGroups/<rg>/providers/Microsoft.CodeSigning/codeSigningAccounts/<account-name>/certificateProfiles/<profile-name>"
-   ```
+6. **Grant the signing role.** Portal (the only web option): open the **Artifact Signing
+   account** → **Access control (IAM)** → **Add → Add role assignment** → *Roles* tab, search
+   **`Artifact Signing`** → select **Artifact Signing Certificate Profile Signer** → *Next* →
+   *Assign access to* = **User, group, or service principal** → *Select members* → pick the app
+   registration from step 5 **by name** → *Review + assign*. Your own account needs **Owner** or
+   **User Access Administrator** here — Contributor can create resources but cannot assign roles.
+   - The portal assigns at **account** scope, which covers every certificate profile under it.
+     Per-profile least privilege is **CLI-only**:
+     ```bash
+     az role assignment create \
+       --assignee <app-client-id> \
+       --role "Artifact Signing Certificate Profile Signer" \
+       --scope "/subscriptions/<sub-id>/resourceGroups/<rg>/providers/Microsoft.CodeSigning/codeSigningAccounts/<account-name>/certificateProfiles/<profile-name>"
+     ```
+   - The credential existing (step 5) does **not** grant this — the role is a separate step, and
+     signing 403s without it.
 
 7. **Add the GitHub repo secrets.** Repo → *Settings* → *Secrets and variables* → *Actions*
    → *New repository secret*, for each of:
 
-   | Secret | Value |
-   |---|---|
-   | `AZURE_CLIENT_ID` | App registration's Application (client) ID — **also the on/off switch**: its presence enables the signing steps. |
-   | `AZURE_TENANT_ID` | Directory (tenant) ID |
-   | `AZURE_SUBSCRIPTION_ID` | The subscription the signing account lives in |
-   | `AZURE_ENDPOINT` | Regional endpoint for your account's region, e.g. `https://eus.codesigning.azure.net/` (East US), `https://wus2.codesigning.azure.net/` (West US 2), `https://neu.codesigning.azure.net/` (North Europe) |
-   | `AZURE_SIGNING_ACCOUNT` | Artifact Signing account name from step 2 |
-   | `AZURE_SIGNING_CERTIFICATE` | Certificate profile name from step 4 |
+   | Secret | Value | Where in the portal |
+   |---|---|---|
+   | `AZURE_CLIENT_ID` | App registration's Application (client) ID — **also the on/off switch**: its presence enables the signing steps. | Entra ID → App registrations → your app → **Overview** → *Application (client) ID* |
+   | `AZURE_TENANT_ID` | Directory (tenant) ID | Same **Overview** page → *Directory (tenant) ID* |
+   | `AZURE_SUBSCRIPTION_ID` | The subscription the signing account lives in | Subscriptions → your subscription → **Overview** → *Subscription ID* |
+   | `AZURE_ENDPOINT` | Regional endpoint for your account's region, e.g. `https://eus.codesigning.azure.net/` (East US), `https://wus2.codesigning.azure.net/` (West US 2), `https://neu.codesigning.azure.net/` (North Europe) | Artifact Signing account → **Overview** → *Account URI* (or map the account's Region to the endpoint table above) |
+   | `AZURE_SIGNING_ACCOUNT` | Artifact Signing account name from step 2 | Artifact Signing account → **Overview** → resource name |
+   | `AZURE_SIGNING_CERTIFICATE` | Certificate profile name from step 4 | Artifact Signing account → **Objects → Certificate profiles** → profile name |
 
    No `AZURE_CLIENT_SECRET` is needed with OIDC.
 

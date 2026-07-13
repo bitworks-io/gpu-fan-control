@@ -8,6 +8,8 @@ namespace LightweightAmdGpuFanControl.Forms;
 /// </summary>
 public sealed class AboutForm : Form
 {
+    private TableLayoutPanel _table = null!;
+
     public AboutForm()
     {
         Text = "About Lightweight AMD GPU Fan Control";
@@ -16,78 +18,131 @@ public sealed class AboutForm : Form
         MinimizeBox = false;
         MaximizeBox = false;
         ShowInTaskbar = false;
-        Size = new Size(430, 270);
+        AutoScaleMode = AutoScaleMode.Dpi;
+        Padding = new Padding(16);
+        // NOTE: form size is set explicitly in OnShown from the table's actual (laid-out,
+        // DPI-scaled) bounds — see PreferencesForm for why a fixed Size clips at high DPI.
+
+        var table = new TableLayoutPanel
+        {
+            ColumnCount = 1,
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            Anchor = AnchorStyles.Top | AnchorStyles.Left,
+            Location = new Point(Padding.Left, Padding.Top)
+        };
+        table.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+
+        int row = 0;
 
         // --- App title ---
         var titleLabel = new Label
         {
             Text = "Lightweight AMD GPU Fan Control",
             Font = new Font(SystemFonts.DefaultFont.FontFamily, 11f, FontStyle.Bold),
-            Location = new Point(20, 20),
-            AutoSize = true
+            AutoSize = true,
+            Anchor = AnchorStyles.Left,
+            Margin = new Padding(3, 3, 3, 6)
         };
+        table.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        table.Controls.Add(titleLabel, 0, row);
+        row++;
 
         // --- Version ---
         var versionText = GetVersion();
         var versionLabel = new Label
         {
             Text = $"Version {versionText}",
-            Location = new Point(20, 50),
-            AutoSize = true
+            AutoSize = true,
+            Anchor = AnchorStyles.Left,
+            Margin = new Padding(3, 3, 3, 3)
         };
+        table.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        table.Controls.Add(versionLabel, 0, row);
+        row++;
 
         // --- Publisher ---
         var publisherLabel = new Label
         {
             Text = "by Bitworks",
             ForeColor = SystemColors.GrayText,
-            Location = new Point(20, 70),
-            AutoSize = true
+            AutoSize = true,
+            Anchor = AnchorStyles.Left,
+            Margin = new Padding(3, 3, 3, 9)
         };
+        table.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        table.Controls.Add(publisherLabel, 0, row);
+        row++;
 
         // --- Feedback blurb ---
         var blurbLabel = new Label
         {
             Text = "Your feedback shapes this tool. Found a bug, or want a feature?\nWe'd genuinely love to hear from you.",
-            Size = new Size(385, 46),
-            Location = new Point(20, 102)
+            AutoSize = true,
+            MaximumSize = new Size(420, 0),
+            Anchor = AnchorStyles.Left,
+            Margin = new Padding(3, 3, 3, 9)
         };
+        table.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        table.Controls.Add(blurbLabel, 0, row);
+        row++;
 
-        // --- Feedback button ---
+        // --- Feedback button + website link ---
         var feedbackButton = new Button
         {
             Text = "Send feedback / request a feature",
-            Location = new Point(20, 158),
-            Width = 240,
-            Height = 30
+            AutoSize = true,
+            Margin = new Padding(3, 3, 12, 3)
         };
         feedbackButton.Click += (_, _) => AppLinks.Open(AppLinks.ContactFormUrl);
 
-        // --- Website link ---
         var websiteLink = new LinkLabel
         {
             Text = "bitworks.io",
-            Location = new Point(272, 166),
-            AutoSize = true
+            AutoSize = true,
+            Anchor = AnchorStyles.Left,
+            Margin = new Padding(3, 8, 3, 3)
         };
         websiteLink.LinkClicked += (_, _) => AppLinks.Open(AppLinks.WebsiteUrl);
+
+        var feedbackFlow = new FlowLayoutPanel
+        {
+            FlowDirection = FlowDirection.LeftToRight,
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            Anchor = AnchorStyles.Left,
+            Margin = new Padding(0, 0, 0, 12)
+        };
+        feedbackFlow.Controls.Add(feedbackButton);
+        feedbackFlow.Controls.Add(websiteLink);
+
+        table.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        table.Controls.Add(feedbackFlow, 0, row);
+        row++;
 
         // --- OK button ---
         var okButton = new Button
         {
             Text = "OK",
             DialogResult = DialogResult.OK,
-            Location = new Point(330, 200),
-            Width = 75
+            AutoSize = true,
+            Anchor = AnchorStyles.Right,
+            Margin = new Padding(3)
         };
+        table.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        table.Controls.Add(okButton, 0, row);
 
-        Controls.AddRange(new System.Windows.Forms.Control[]
-        {
-            titleLabel, versionLabel, publisherLabel, blurbLabel,
-            feedbackButton, websiteLink, okButton
-        });
+        _table = table;
+        Controls.Add(table);
 
         AcceptButton = okButton;
+    }
+
+    protected override void OnShown(EventArgs e)
+    {
+        base.OnShown(e);
+        ClientSize = new Size(_table.Right + Padding.Right, _table.Bottom + Padding.Bottom);
+        CenterToScreen();
     }
 
     private static string GetVersion()

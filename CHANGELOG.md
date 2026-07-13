@@ -55,8 +55,21 @@ fan-curve UI. Publisher: Bitworks (bitworks.io).
   at decision time. (Covered by a regression test.)
 - **Fan apply uses the percent-native ADLX fan curve.** Removes a unit mismatch where the
   target-fan-speed path was fed a percentage-range value where an RPM value was expected.
-- **Preferences window no longer clips/overlaps on high-DPI displays.** Rebuilt with a
-  table/flow layout that scales; DPI mode made consistent with the manifest.
+- **Preferences and About dialogs no longer clip buttons/text on high-DPI displays.** Rebuilt on
+  auto-sizing layouts sized after DPI scaling (in `OnShown`); DPI mode made consistent with the manifest.
+
+### Added (post-rc.1 hardware validation)
+
+- **Preferences: fan-control mode + Apply.** The Automatic/Manual mode (and manual fan speed) is now
+  shown and editable in Preferences, matching the tray. Buttons follow Windows convention —
+  **OK** applies and closes, **Cancel** discards and closes, **Apply** applies and keeps the window open.
+- **"Start with Windows" reflects the real startup state** (the installer's Run key), not just settings.
+- **Adaptive GPU-monitor contention mitigation.** Detects co-running GPU monitors
+  (GPU-Z, MSI Afterburner, HWiNFO, AIDA64, …), reduces sensor polling while they run, stops redundant
+  fan writes, and warns once — to limit the AMD-driver sensor-bus contention that can cause crashes /
+  "green screen" when several GPU tools poll at once.
+- **Code-signing pipeline prepared.** CI has a gated Azure Trusted Signing step (no-op until the
+  signing secrets are configured).
 
 ### Security / Operational notes
 

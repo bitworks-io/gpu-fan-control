@@ -45,8 +45,10 @@ public class PreferencesForm : Form
         ShowInTaskbar = false;
         AutoScaleMode = AutoScaleMode.Dpi;
         Padding = new Padding(12);
-        // NOTE: form size is set explicitly in OnLoad from the table's preferred size. A Dock=Fill
-        // TableLayoutPanel does not reliably grow an AutoSize form (it clipped the button row).
+        // NOTE: form size is set explicitly in OnShown from the table's actual (laid-out, DPI-scaled)
+        // bounds. The table is un-docked (AutoSize) rather than Dock=Fill, because a docked control's
+        // PreferredSize reflects its docked size, not its content size — that previously clipped the
+        // button row.
 
         var settings = _settingsService.Load();
 
@@ -58,7 +60,8 @@ public class PreferencesForm : Form
             ColumnCount = 2,
             AutoSize = true,
             AutoSizeMode = AutoSizeMode.GrowAndShrink,
-            Dock = DockStyle.Fill
+            Anchor = AnchorStyles.Top | AnchorStyles.Left,
+            Location = new Point(Padding.Left, Padding.Top)
         };
         table.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         table.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
@@ -304,10 +307,12 @@ public class PreferencesForm : Form
         row++;
 
         // ── Buttons row ──────────────────────────────────────────────────────
+        // About sits on the left (column 0); OK / Cancel / Apply are right-aligned (column 1).
         var aboutButton = new Button
         {
             Text = "About…",
-            Width = 80,
+            AutoSize = true,
+            Anchor = AnchorStyles.Left,
             Margin = new Padding(3)
         };
         aboutButton.Click += (_, _) => new AboutForm().ShowDialog(this);
@@ -316,7 +321,7 @@ public class PreferencesForm : Form
         {
             Text = "Cancel",
             DialogResult = DialogResult.Cancel,
-            Width = 75,
+            AutoSize = true,
             Margin = new Padding(3)
         };
 
@@ -324,28 +329,37 @@ public class PreferencesForm : Form
         {
             Text = "OK",
             DialogResult = DialogResult.OK,
-            Width = 75,
+            AutoSize = true,
             Margin = new Padding(3)
         };
-        okButton.Click += OkButton_Click;
+        okButton.Click += (_, _) => ApplySettings();
+
+        var applyButton = new Button
+        {
+            Text = "Apply",
+            DialogResult = DialogResult.None,
+            AutoSize = true,
+            Margin = new Padding(3)
+        };
+        applyButton.Click += (_, _) => ApplySettings();
 
         // Right-aligned button flow; controls are added right-to-left so the
-        // resulting visual order reads About … Cancel  OK.
-        var buttonPanel = new FlowLayoutPanel
+        // resulting visual order reads OK  Cancel  Apply.
+        var commitFlow = new FlowLayoutPanel
         {
             FlowDirection = FlowDirection.RightToLeft,
             AutoSize = true,
             AutoSizeMode = AutoSizeMode.GrowAndShrink,
             Anchor = AnchorStyles.Right,
-            Margin = new Padding(3, 6, 3, 3)
+            Margin = new Padding(0)
         };
-        buttonPanel.Controls.Add(okButton);
-        buttonPanel.Controls.Add(cancelButton);
-        buttonPanel.Controls.Add(aboutButton);
+        commitFlow.Controls.Add(applyButton);
+        commitFlow.Controls.Add(cancelButton);
+        commitFlow.Controls.Add(okButton);
 
         table.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        table.Controls.Add(buttonPanel, 0, row);
-        table.SetColumnSpan(buttonPanel, 2);
+        table.Controls.Add(aboutButton, 0, row);
+        table.Controls.Add(commitFlow, 1, row);
 
         _table = table;
         Controls.Add(table);
@@ -364,18 +378,12 @@ public class PreferencesForm : Form
         };
     }
 
-    protected override void OnLoad(EventArgs e)
+    protected override void OnShown(EventArgs e)
     {
-        base.OnLoad(e);
-        // Size the dialog to the table's full (DPI-scaled) content here, where PreferredSize is
-        // accurate. A Dock=Fill panel does not reliably grow an AutoSize form, which previously
-        // clipped the bottom button row.
-        var pref = _table.PreferredSize;
-        ClientSize = new Size(pref.Width + Padding.Horizontal, pref.Height + Padding.Vertical);
-
-        // Re-center on the working area: CenterScreen positioned the form at its pre-resize size.
-        var wa = Screen.FromControl(this).WorkingArea;
-        Location = new Point(wa.X + (wa.Width - Width) / 2, wa.Y + (wa.Height - Height) / 2);
+        base.OnShown(e);
+        // Size to the fully laid-out, DPI-scaled table (un-docked, so its bounds are real), then re-center.
+        ClientSize = new Size(_table.Right + Padding.Right, _table.Bottom + Padding.Bottom);
+        CenterToScreen();
     }
 
     private void PopulateGpuList(AppSettings settings)
@@ -429,7 +437,7 @@ public class PreferencesForm : Form
         _statusLabel.Text = string.Join(Environment.NewLine, lines);
     }
 
-    private void OkButton_Click(object? sender, EventArgs e)
+    private void ApplySettings()
     {
         var settings = _settingsService.Load();
         settings.Mode = _manualModeRadio.Checked ? FanMode.Manual : FanMode.Auto;

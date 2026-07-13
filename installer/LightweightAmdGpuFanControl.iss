@@ -27,6 +27,10 @@ ArchitecturesInstallIn64BitMode=x64
 PrivilegesRequired=lowest
 ; Windows 10 (1903+) or Windows 11 — matches the in-box .NET Framework 4.8 requirement.
 MinVersion=10.0
+; The app is a windowless systray process; Restart Manager can't reliably close it and the install
+; hung when a previous copy was running. Disable RM's close attempt and terminate the old instance
+; ourselves in [Code] PrepareToInstall (then relaunch it — see [Run]).
+CloseApplications=no
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
@@ -49,12 +53,21 @@ Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "LightweightAmdGpuFanControl"; ValueData: """{app}\{#MyAppExeName}"""; Flags: uninsdeletevalue; Tasks: startup
 
 [Run]
-Filename: "{app}\{#MyAppExeName}"; Description: "Launch {#MyAppName}"; Flags: nowait postinstall skipifsilent
+; Fresh install: optional "Launch" checkbox on the finished page.
+Filename: "{app}\{#MyAppExeName}"; Description: "Launch {#MyAppName}"; Flags: nowait postinstall skipifsilent; Check: IsFreshInstall
+; Upgrade over a running instance we just force-closed: relaunch unconditionally so fan control
+; resumes (the forced close skipped the app's fan-restore; leaving the GPU unmanaged is not an option).
+Filename: "{app}\{#MyAppExeName}"; Flags: nowait; Check: ClosedRunningInstance
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{localappdata}\Bitworks\LightweightAmdGpuFanControl"
 
 [Code]
+var
+  // Set true in PrepareToInstall when we force-closed a previously-running instance, so [Run]
+  // knows to relaunch it (a fresh install just offers the optional "Launch" checkbox instead).
+  GClosedRunningInstance: Boolean;
+
 // The app targets .NET Framework 4.8, which ships in-box on Windows 10 1903+ and Windows 11
 // but is absent from older Windows 10 builds (which carry 4.7.x). Detect it via the standard
 // NDP\v4\Full 'Release' DWORD (528040 = 4.8) and guide the user rather than let the app fail
@@ -82,5 +95,38 @@ begin
               mbInformation, MB_YESNO) = IDYES then
       ShellExec('open', 'https://dotnet.microsoft.com/download/dotnet-framework/net48', '', '', SW_SHOW, ewNoWait, ErrorCode);
     Result := False;
+  end;
+end;
+
+// [Run] Check helpers: relaunch the app after an upgrade that closed a running copy; otherwise
+// (fresh install) just show the optional "Launch" checkbox on the finished page.
+function ClosedRunningInstance(): Boolean;
+begin
+  Result := GClosedRunningInstance;
+end;
+
+function IsFreshInstall(): Boolean;
+begin
+  Result := not GClosedRunningInstance;
+end;
+
+// Close a previously-running instance so its locked EXE/DLLs can be replaced. The app is a
+// windowless systray process that Restart Manager can't reliably close (CloseApplications=no),
+// so terminate it directly. taskkill exit code 0 means an instance was actually running and
+// killed — record that so [Run] relaunches it (the forced close skipped the app's fan-restore).
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+var
+  ResultCode: Integer;
+begin
+  Result := '';
+  if Exec(ExpandConstant('{cmd}'), '/C taskkill /F /IM {#MyAppExeName}', '',
+          SW_HIDE, ewWaitUntilTerminated, ResultCode) then
+  begin
+    if ResultCode = 0 then
+    begin
+      GClosedRunningInstance := True;
+      // Give Windows a moment to release the file handles before we overwrite the EXE/DLLs.
+      Sleep(1500);
+    end;
   end;
 end;

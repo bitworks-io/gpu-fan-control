@@ -77,7 +77,7 @@ gh run download <id> -n LightweightAmdGpuFanControl-Setup         # get Setup.ex
 - **No elevation assumed**: `app.manifest` uses `asInvoker`; installer `PrivilegesRequired=lowest`. **Phase 5 must confirm** fan-set works without admin; if it requires admin, switch manifest to `requireAdministrator` + installer `PrivilegesRequired=admin`.
 - No network calls except user-initiated browser opens to bitworks.io. No telemetry, no secrets.
 - Native P/Invoke to AMD driver DLLs (`atiadlxx.dll`, ADLX). Driver-provided DLLs are **not** bundled (loaded from system); only the SWIG binding (`ADLXCSharpBind.dll`) and managed wrapper (`ADLXWrapper.dll`) ship.
-- **Unsigned build** → Windows SmartScreen will warn. Signing is a gated CI hook (`SIGN_CERT_BASE64` secret) that is currently a no-op.
+- **Unsigned build** → Windows SmartScreen will warn. Real, gated **Azure Artifact Signing** steps (`azure/login` OIDC + `azure/artifact-signing-action`) are in the workflow but skipped until the `AZURE_*` repo secrets are set; onboarding in [signing-setup.md](signing-setup.md).
 
 ## Operational Notes
 

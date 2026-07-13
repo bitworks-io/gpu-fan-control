@@ -12,9 +12,12 @@ on:
 jobs:
   build:
     runs-on: windows-latest
+    permissions:
+      id-token: write   # OIDC: lets azure/login mint a federated token (no stored secret)
+      contents: read
     env:
-      # Presence of this secret enables the Azure Trusted Signing step below.
-      # Builds stay green (unsigned) until Trusted Signing is provisioned and the secrets are set.
+      # Presence of this secret enables the Azure Artifact Signing steps below.
+      # Builds stay green (unsigned) until signing is provisioned and the secrets are set.
       AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
 
     steps:
@@ -57,28 +60,39 @@ jobs:
           }
           Write-Host "All required ADLX binaries present in publish output."
 
-      # Code-sign the installer via Azure Trusted Signing (a.k.a. Artifact Signing). Gated on the
-      # AZURE_CLIENT_ID secret, so the build succeeds unsigned until Trusted Signing is provisioned.
-      # Setup: create a Trusted Signing account + certificate profile, register an Entra ID app
-      # (service principal) granted the "Trusted Signing Certificate Profile Signer" role, then add
-      # 6 repo secrets: AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET, AZURE_ENDPOINT,
-      # AZURE_SIGNING_ACCOUNT, AZURE_SIGNING_CERTIFICATE. Verify the action version is current before
-      # relying on it. Follow-up: also sign the app .exe pre-packaging (requires splitting build.ps1).
-      - name: Sign installer (Azure Trusted Signing)
-        if: ${{ env.AZURE_CLIENT_ID != '' }}
-        uses: azure/trusted-signing-action@v0.5.1
+      # Code-sign the installer via Azure Artifact Signing (formerly "Trusted Signing"; same
+      # Microsoft.CodeSigning service). Gated on BOTH the AZURE_CLIENT_ID secret AND a release (v*)
+      # tag: signing runs ONLY on tag builds — the only artifacts that get published — so the build
+      # stays green/unsigned on PRs and main, and no signing quota is spent on non-releases. Scoping
+      # to tags also keeps the OIDC setup simple: the federated credential only has to match the tag
+      # token subject (refs/tags/*), not also main and pull_request. Full Azure onboarding and the six
+      # repo secrets are in docs/signing-setup.md. Auth is passwordless OIDC (azure/login mints a
+      # federated token; no client secret stored). Follow-up in signing-setup.md §4: also sign the
+      # inner app .exe, which requires signing it before Inno Setup packages it (a build split).
+      - name: Azure login (OIDC — no stored secret)
+        if: ${{ env.AZURE_CLIENT_ID != '' && startsWith(github.ref, 'refs/tags/v') }}
+        uses: azure/login@v2
         with:
-          azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          azure-client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Sign installer (Azure Artifact Signing)
+        if: ${{ env.AZURE_CLIENT_ID != '' && startsWith(github.ref, 'refs/tags/v') }}
+        uses: azure/artifact-signing-action@v2
+        with:
           endpoint: ${{ secrets.AZURE_ENDPOINT }}
-          trusted-signing-account-name: ${{ secrets.AZURE_SIGNING_ACCOUNT }}
+          signing-account-name: ${{ secrets.AZURE_SIGNING_ACCOUNT }}
           certificate-profile-name: ${{ secrets.AZURE_SIGNING_CERTIFICATE }}
           files-folder: ${{ github.workspace }}\output
           files-folder-filter: exe
           file-digest: SHA256
           timestamp-rfc3161: http://timestamp.acs.microsoft.com
           timestamp-digest: SHA256
+          # Pin DefaultAzureCredential to the Azure-CLI session azure/login just established,
+          # so it uses the OIDC token — not the AZURE_CLIENT_ID env var, which carries no secret.
+          exclude-environment-credential: true
+          exclude-azure-cli-credential: false
 
       - name: Upload installer
         uses: actions/upload-artifact@v7

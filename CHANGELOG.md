@@ -4,16 +4,15 @@ All notable changes to **Lightweight AMD GPU Fan Control** are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.0.0] — Unreleased (pending Phase 5 hardware sign-off)
+## [1.0.0] — 2026-07-13
 
 First public release. A per-user Windows systray utility (.NET Framework 4.8
 WinForms) that drives AMD Radeon GPU fans toward a **core/edge temperature
 target** (default 65 °C), as a lightweight alternative to the AMD Adrenalin
 fan-curve UI. Publisher: Bitworks (bitworks.io).
 
-> **Not yet released.** All automated and CI checks are green, but the on-hardware
-> acceptance gate (Phase 5, real AMD Windows PC) is not yet signed off. Do not cut
-> the `v1.0.0` tag until Phase 5 passes — see [docs/release-runbook.md](docs/release-runbook.md).
+> **Released.** Validated on real hardware (Radeon RX 7900 XTX). The installer is
+> code-signed via Azure Artifact Signing. Superseded the `v1.0.0-rc.1`…`rc.8` prereleases.
 
 ### Added
 

@@ -3,9 +3,9 @@
 How to cut a release. The mechanism is **one action**: push a `v*` tag and CI does
 the rest. Everything below is the discipline around that one action.
 
-> **Status: staged, tag NOT cut.** The `v1.0.0` tag must not be pushed until the
-> Phase 5 hardware gate passes (see [agent-handoff.md](agent-handoff.md) →
-> "Remaining Work"). This runbook is the checklist for the day that gate is green.
+> **Status: v1.0.0 RELEASED (2026-07-13).** The Phase 5 hardware gate passed (Radeon RX
+> 7900 XTX bench sign-off) and the signed installer shipped. This runbook remains the
+> checklist for future releases (`v1.0.1`, etc.).
 
 ---
 

@@ -13,8 +13,9 @@ jobs:
   build:
     runs-on: windows-latest
     env:
-      SIGN_CERT_BASE64: ${{ secrets.SIGN_CERT_BASE64 }}
-      SIGN_CERT_PASSWORD: ${{ secrets.SIGN_CERT_PASSWORD }}
+      # Presence of this secret enables the Azure Trusted Signing step below.
+      # Builds stay green (unsigned) until Trusted Signing is provisioned and the secrets are set.
+      AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
 
     steps:
       - name: Checkout
@@ -56,15 +57,28 @@ jobs:
           }
           Write-Host "All required ADLX binaries present in publish output."
 
-      - name: Sign installer
-        if: ${{ env.SIGN_CERT_BASE64 != '' }}
-        shell: pwsh
-        run: |
-          Write-Host "Code-signing cert secret present; signing installer."
-          # TODO(cert): decode $env:SIGN_CERT_BASE64 to a .pfx and run signtool sign
-          # /f cert.pfx /p $env:SIGN_CERT_PASSWORD /tr <timestamp-url> /fd sha256 /td sha256
-          # output\LightweightAmdGpuFanControl-Setup.exe
-          # No-op until the SIGN_CERT_BASE64 secret is configured.
+      # Code-sign the installer via Azure Trusted Signing (a.k.a. Artifact Signing). Gated on the
+      # AZURE_CLIENT_ID secret, so the build succeeds unsigned until Trusted Signing is provisioned.
+      # Setup: create a Trusted Signing account + certificate profile, register an Entra ID app
+      # (service principal) granted the "Trusted Signing Certificate Profile Signer" role, then add
+      # 6 repo secrets: AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET, AZURE_ENDPOINT,
+      # AZURE_SIGNING_ACCOUNT, AZURE_SIGNING_CERTIFICATE. Verify the action version is current before
+      # relying on it. Follow-up: also sign the app .exe pre-packaging (requires splitting build.ps1).
+      - name: Sign installer (Azure Trusted Signing)
+        if: ${{ env.AZURE_CLIENT_ID != '' }}
+        uses: azure/trusted-signing-action@v0.5.1
+        with:
+          azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          azure-client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
+          endpoint: ${{ secrets.AZURE_ENDPOINT }}
+          trusted-signing-account-name: ${{ secrets.AZURE_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ secrets.AZURE_SIGNING_CERTIFICATE }}
+          files-folder: ${{ github.workspace }}\output
+          files-folder-filter: exe
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
 
       - name: Upload installer
         uses: actions/upload-artifact@v7

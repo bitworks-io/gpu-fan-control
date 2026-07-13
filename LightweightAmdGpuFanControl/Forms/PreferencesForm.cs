@@ -13,6 +13,9 @@ public class PreferencesForm : Form
     private readonly StartupService _startupService;
     private readonly FanControlService _fanControlService;
 
+    private RadioButton _autoModeRadio = null!;
+    private RadioButton _manualModeRadio = null!;
+    private NumericUpDown _manualFanControl = null!;
     private NumericUpDown _targetTempControl = null!;
     private NumericUpDown _minFanControl = null!;
     private NumericUpDown _maxFanControl = null!;
@@ -20,6 +23,7 @@ public class PreferencesForm : Form
     private CheckedListBox _gpuList = null!;
     private Label _statusLabel = null!;
     private System.Windows.Forms.Timer _statusTimer = null!;
+    private TableLayoutPanel _table = null!;
 
     // GPU items we actually populated; null means we showed the "Detecting…" placeholder.
     private List<GpuConfig>? _loadedGpus;
@@ -40,9 +44,9 @@ public class PreferencesForm : Form
         MaximizeBox = false;
         ShowInTaskbar = false;
         AutoScaleMode = AutoScaleMode.Dpi;
-        AutoSize = true;
-        AutoSizeMode = AutoSizeMode.GrowAndShrink;
         Padding = new Padding(12);
+        // NOTE: form size is set explicitly in OnLoad from the table's preferred size. A Dock=Fill
+        // TableLayoutPanel does not reliably grow an AutoSize form (it clipped the button row).
 
         var settings = _settingsService.Load();
 
@@ -60,6 +64,71 @@ public class PreferencesForm : Form
         table.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
 
         int row = 0;
+
+        // ── Fan control mode ─────────────────────────────────────────────────
+        // Mirrors the tray's Automatic / Manual choice so the current state is visible and
+        // editable here. The two radios group within their own FlowLayoutPanel.
+        var modeLabel = new Label
+        {
+            Text = "Fan control mode:",
+            AutoSize = true,
+            Anchor = AnchorStyles.Left,
+            Margin = new Padding(3, 6, 12, 3)
+        };
+        _autoModeRadio = new RadioButton
+        {
+            Text = "Automatic (temperature curve)",
+            AutoSize = true,
+            Checked = settings.Mode != FanMode.Manual,
+            Margin = new Padding(3, 0, 3, 0)
+        };
+        _manualModeRadio = new RadioButton
+        {
+            Text = "Manual (fixed speed)",
+            AutoSize = true,
+            Checked = settings.Mode == FanMode.Manual,
+            Margin = new Padding(3, 0, 3, 0)
+        };
+        var modePanel = new FlowLayoutPanel
+        {
+            FlowDirection = FlowDirection.TopDown,
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            WrapContents = false,
+            Margin = new Padding(3, 3, 3, 3)
+        };
+        modePanel.Controls.Add(_autoModeRadio);
+        modePanel.Controls.Add(_manualModeRadio);
+        table.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        table.Controls.Add(modeLabel, 0, row);
+        table.Controls.Add(modePanel, 1, row);
+        row++;
+
+        // ── Manual fixed fan speed (applies only in Manual mode) ─────────────
+        var manualFanLabel = new Label
+        {
+            Text = "Manual fan speed (%):",
+            AutoSize = true,
+            Anchor = AnchorStyles.Left,
+            Margin = new Padding(3, 6, 12, 6)
+        };
+        _manualFanControl = new NumericUpDown
+        {
+            Minimum = AppSettings.MinFanFloor,    // 20
+            Maximum = AppSettings.MaxFanCeiling,  // 85
+            Value = MathCompat.Clamp(settings.ManualFanPercent, AppSettings.MinFanFloor, AppSettings.MaxFanCeiling),
+            Width = 70,
+            Enabled = _manualModeRadio.Checked,
+            Anchor = AnchorStyles.Left,
+            Margin = new Padding(3, 3, 3, 3)
+        };
+        _manualModeRadio.CheckedChanged += (_, _) => _manualFanControl.Enabled = _manualModeRadio.Checked;
+        table.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        table.Controls.Add(manualFanLabel, 0, row);
+        table.Controls.Add(_manualFanControl, 1, row);
+        row++;
+
+        // ── Automatic-curve settings (target / min / max) ────────────────────
 
         // ── Core GPU temperature target ──────────────────────────────────────
         var targetLabel = new Label
@@ -148,7 +217,10 @@ public class PreferencesForm : Form
         _startWithWindowsCheck = new CheckBox
         {
             Text = "Start with Windows",
-            Checked = settings.StartWithWindows,
+            // Reflect the ACTUAL Run-key state (the installer can set it directly), not the
+            // settings.json value — otherwise the box shows unchecked after an install that
+            // enabled startup, and clicking OK would silently remove the installer's Run key.
+            Checked = _startupService.IsEnabled,
             AutoSize = true,
             Anchor = AnchorStyles.Left,
             Margin = new Padding(3, 3, 3, 9)
@@ -275,6 +347,7 @@ public class PreferencesForm : Form
         table.Controls.Add(buttonPanel, 0, row);
         table.SetColumnSpan(buttonPanel, 2);
 
+        _table = table;
         Controls.Add(table);
 
         AcceptButton = okButton;
@@ -289,6 +362,20 @@ public class PreferencesForm : Form
             _statusTimer.Stop();
             _statusTimer.Dispose();
         };
+    }
+
+    protected override void OnLoad(EventArgs e)
+    {
+        base.OnLoad(e);
+        // Size the dialog to the table's full (DPI-scaled) content here, where PreferredSize is
+        // accurate. A Dock=Fill panel does not reliably grow an AutoSize form, which previously
+        // clipped the bottom button row.
+        var pref = _table.PreferredSize;
+        ClientSize = new Size(pref.Width + Padding.Horizontal, pref.Height + Padding.Vertical);
+
+        // Re-center on the working area: CenterScreen positioned the form at its pre-resize size.
+        var wa = Screen.FromControl(this).WorkingArea;
+        Location = new Point(wa.X + (wa.Width - Width) / 2, wa.Y + (wa.Height - Height) / 2);
     }
 
     private void PopulateGpuList(AppSettings settings)
@@ -345,6 +432,8 @@ public class PreferencesForm : Form
     private void OkButton_Click(object? sender, EventArgs e)
     {
         var settings = _settingsService.Load();
+        settings.Mode = _manualModeRadio.Checked ? FanMode.Manual : FanMode.Auto;
+        settings.ManualFanPercent = (int)_manualFanControl.Value;
         settings.TargetTempC = (int)_targetTempControl.Value;
         settings.MinFanPercent = (int)_minFanControl.Value;
         settings.MaxFanPercent = (int)_maxFanControl.Value;

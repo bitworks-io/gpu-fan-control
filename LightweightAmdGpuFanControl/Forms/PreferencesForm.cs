@@ -13,6 +13,9 @@ public class PreferencesForm : Form
     private readonly StartupService _startupService;
     private readonly FanControlService _fanControlService;
 
+    private RadioButton _autoModeRadio = null!;
+    private RadioButton _manualModeRadio = null!;
+    private NumericUpDown _manualFanControl = null!;
     private NumericUpDown _targetTempControl = null!;
     private NumericUpDown _minFanControl = null!;
     private NumericUpDown _maxFanControl = null!;
@@ -61,6 +64,71 @@ public class PreferencesForm : Form
         table.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
 
         int row = 0;
+
+        // ── Fan control mode ─────────────────────────────────────────────────
+        // Mirrors the tray's Automatic / Manual choice so the current state is visible and
+        // editable here. The two radios group within their own FlowLayoutPanel.
+        var modeLabel = new Label
+        {
+            Text = "Fan control mode:",
+            AutoSize = true,
+            Anchor = AnchorStyles.Left,
+            Margin = new Padding(3, 6, 12, 3)
+        };
+        _autoModeRadio = new RadioButton
+        {
+            Text = "Automatic (temperature curve)",
+            AutoSize = true,
+            Checked = settings.Mode != FanMode.Manual,
+            Margin = new Padding(3, 0, 3, 0)
+        };
+        _manualModeRadio = new RadioButton
+        {
+            Text = "Manual (fixed speed)",
+            AutoSize = true,
+            Checked = settings.Mode == FanMode.Manual,
+            Margin = new Padding(3, 0, 3, 0)
+        };
+        var modePanel = new FlowLayoutPanel
+        {
+            FlowDirection = FlowDirection.TopDown,
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            WrapContents = false,
+            Margin = new Padding(3, 3, 3, 3)
+        };
+        modePanel.Controls.Add(_autoModeRadio);
+        modePanel.Controls.Add(_manualModeRadio);
+        table.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        table.Controls.Add(modeLabel, 0, row);
+        table.Controls.Add(modePanel, 1, row);
+        row++;
+
+        // ── Manual fixed fan speed (applies only in Manual mode) ─────────────
+        var manualFanLabel = new Label
+        {
+            Text = "Manual fan speed (%):",
+            AutoSize = true,
+            Anchor = AnchorStyles.Left,
+            Margin = new Padding(3, 6, 12, 6)
+        };
+        _manualFanControl = new NumericUpDown
+        {
+            Minimum = AppSettings.MinFanFloor,    // 20
+            Maximum = AppSettings.MaxFanCeiling,  // 85
+            Value = MathCompat.Clamp(settings.ManualFanPercent, AppSettings.MinFanFloor, AppSettings.MaxFanCeiling),
+            Width = 70,
+            Enabled = _manualModeRadio.Checked,
+            Anchor = AnchorStyles.Left,
+            Margin = new Padding(3, 3, 3, 3)
+        };
+        _manualModeRadio.CheckedChanged += (_, _) => _manualFanControl.Enabled = _manualModeRadio.Checked;
+        table.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        table.Controls.Add(manualFanLabel, 0, row);
+        table.Controls.Add(_manualFanControl, 1, row);
+        row++;
+
+        // ── Automatic-curve settings (target / min / max) ────────────────────
 
         // ── Core GPU temperature target ──────────────────────────────────────
         var targetLabel = new Label
@@ -364,6 +432,8 @@ public class PreferencesForm : Form
     private void OkButton_Click(object? sender, EventArgs e)
     {
         var settings = _settingsService.Load();
+        settings.Mode = _manualModeRadio.Checked ? FanMode.Manual : FanMode.Auto;
+        settings.ManualFanPercent = (int)_manualFanControl.Value;
         settings.TargetTempC = (int)_targetTempControl.Value;
         settings.MinFanPercent = (int)_minFanControl.Value;
         settings.MaxFanPercent = (int)_maxFanControl.Value;

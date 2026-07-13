@@ -12,6 +12,12 @@ on:
 jobs:
   build:
     runs-on: windows-latest
+    # Target the "release" GitHub Environment ONLY on release (v*) tag builds, so the OIDC token
+    # subject becomes repo:<owner>/gpu-fan-control:environment:release — matching the Azure Artifact
+    # Signing federated credential (Environment entity type). On PRs/main the expression is the empty
+    # string, i.e. NO environment, so ordinary builds never touch the environment (and any protection
+    # rules you add to it gate only releases). Requires a GitHub Environment named "release".
+    environment: ${{ startsWith(github.ref, 'refs/tags/v') && 'release' || '' }}
     permissions:
       id-token: write   # OIDC: lets azure/login mint a federated token (no stored secret)
       contents: read

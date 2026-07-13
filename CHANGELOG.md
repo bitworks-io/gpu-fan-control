@@ -49,10 +49,12 @@ fan-curve UI. Publisher: Bitworks (bitworks.io).
 
 ### Fixed (during Phase 5 hardware validation, Radeon RX 7900 XTX)
 
-- **Manual fixed-speed mode: fan now slows back down.** Lowering the minimum fan speed left
-  the fan stuck high because the manual setpoint was destructively clamped *upward* when the
-  minimum rose and never restored when it fell. The setpoint is now preserved and clamped only
-  at decision time. (Covered by a regression test.)
+- **Fan now ramps back DOWN (both Automatic and Manual).** The AMD driver latches the manual fan
+  setpoint at its highest value and ignores a lower fan curve until manual control is released — so
+  lowering the target (min in Auto, fixed speed in Manual) left the fan stuck high; only exiting the
+  app, which releases control, dropped it. The app now briefly **releases and re-applies whenever the
+  target decreases**, forcing the driver to re-evaluate downward. (Also fixed a secondary settings
+  clamp that could ratchet the manual setpoint up; covered by a regression test.)
 - **Fan apply uses the percent-native ADLX fan curve.** Removes a unit mismatch where the
   target-fan-speed path was fed a percentage-range value where an RPM value was expected.
 - **Preferences and About dialogs no longer clip buttons/text on high-DPI displays.** Rebuilt on

@@ -18,6 +18,7 @@ public sealed class FanController
     private ManualFanTuning? _manualFanTuning;
     private GPU? _gpu;
     private int _lastLoggedPercent = -1;
+    private int _lastAppliedPercent = -1;
 
     public FanController(SystemServices systemServices, LogService? log = null)
     {
@@ -85,17 +86,27 @@ public sealed class FanController
 
         try
         {
+            // The AMD driver latches the manual fan setpoint at the highest value set since manual
+            // control was last released: writing a LOWER fan curve is accepted (the read-back
+            // confirms it) but the fan does NOT ramp down until control is released. So when the
+            // new value is LOWER than what we last applied, first release to the driver's captured
+            // state (Reset), then re-apply the lower value — this forces a downward re-evaluation.
+            // Increases apply directly (they ramp up correctly). This mirrors why closing the app
+            // (which Resets) makes the fan drop.
+            bool releasedForDecrease = _lastAppliedPercent >= 0 && percent < _lastAppliedPercent;
+            if (releasedForDecrease)
+            {
+                try { _manualFanTuning.Reset(); } catch { /* best-effort release before re-apply */ }
+            }
+
             if (_manualFanTuning.SupportsZeroRPM)
                 _manualFanTuning.SetZeroRPM(false);
 
-            // Percent-native fan curve: set every tuning-state point to `percent`%. This is
-            // AMD's own sample approach (ADLXHelper::SetSpeed) and lowers symmetrically. We do
-            // NOT use SetTargetFanSpeed: its argument must come from the target fan-speed RPM
-            // range (GetTargetFanSpeedRange), not the tuning-state % range (SpeedRange) — the
-            // prior code mixed those units, sending a percent value where RPM was expected.
+            // Percent-native fan curve: set every tuning-state point to `percent`% (ADLXHelper::SetSpeed).
             _manualFanTuning.SetFanTuningStates2(percent);
+            _lastAppliedPercent = percent;
 
-            LogApplied(requested, percent);
+            LogApplied(requested, percent, releasedForDecrease);
         }
         catch (Exception ex)
         {
@@ -111,7 +122,7 @@ public sealed class FanController
     /// an application bug (setpoint not written) from a driver behaviour (setpoint ignored).
     /// Never throws; diagnostics must not affect control.
     /// </summary>
-    private void LogApplied(int requested, int clamped)
+    private void LogApplied(int requested, int clamped, bool releasedForDecrease)
     {
         if (_log == null || clamped == _lastLoggedPercent)
             return;
@@ -121,6 +132,7 @@ public sealed class FanController
             var state = _manualFanTuning!.GetCurrentState();
             var readback = state is { Length: > 0 } ? string.Join(",", state) : "n/a";
             _log.Log($"[fan] applied requested={requested}% clamped={clamped}% " +
+                     $"releasedForDecrease={releasedForDecrease} " +
                      $"zeroRpmSupported={_manualFanTuning.SupportsZeroRPM} " +
                      $"targetSpeedSupported={_manualFanTuning.SupportsTargetFanSpeed} " +
                      $"tuningSpeedRange=[{_manualFanTuning.SpeedRange.Min},{_manualFanTuning.SpeedRange.Max}] " +
@@ -156,6 +168,7 @@ public sealed class FanController
         try
         {
             _manualFanTuning?.Reset();
+            _lastAppliedPercent = -1; // control released; the next Set starts a fresh latch
         }
         catch
         {

@@ -42,7 +42,11 @@ public sealed class SystrayApplicationContext : ApplicationContext
         AppDomain.CurrentDomain.ProcessExit += (_, _) => _fanControlService.RestoreAll();
         AppDomain.CurrentDomain.UnhandledException += (_, _) => _fanControlService.RestoreAll();
         Application.ThreadException += (_, _) => _fanControlService.RestoreAll();
-        Microsoft.Win32.SystemEvents.SessionEnding += (_, _) => _fanControlService.RestoreAll();
+        // Session end (logoff/shutdown) OR an installer's Restart Manager asking us to close: a
+        // systray app has no visible window to receive WM_CLOSE, so we must terminate OURSELVES
+        // here — otherwise the process lingers (only the fan-restore fired) and the installer waits
+        // forever, forcing the user to kill it in Task Manager.
+        Microsoft.Win32.SystemEvents.SessionEnding += (_, _) => ShutdownForExternalClose();
         TaskScheduler.UnobservedTaskException += (_, e) => { _fanControlService.RestoreAll(); e.SetObserved(); };
 
         // Live tooltip refresh (~2.5s matches poll interval).
@@ -249,5 +253,19 @@ public sealed class SystrayApplicationContext : ApplicationContext
         _notifyIcon.Visible = false;
         _notifyIcon.Dispose();
         Application.Exit();
+    }
+
+    /// <summary>
+    /// Terminate in response to session end / an installer's Restart Manager close request. Restores
+    /// fans, removes the tray icon, then forces the process to exit so the installer can proceed.
+    /// Uses Environment.Exit (not Application.Exit) to guarantee prompt, thread-safe termination —
+    /// Application.Exit only signals the message loop and can be missed from a session-end callback.
+    /// </summary>
+    private void ShutdownForExternalClose()
+    {
+        try { _tooltipTimer.Stop(); } catch { }
+        try { _fanControlService.Stop(); } catch { } // restores every GPU to auto + tears down the session
+        try { _notifyIcon.Visible = false; _notifyIcon.Dispose(); } catch { }
+        Environment.Exit(0);
     }
 }

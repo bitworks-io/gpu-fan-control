@@ -74,6 +74,17 @@ fan-curve UI. Publisher: Bitworks (bitworks.io).
   OIDC via `azure/login` + `azure/artifact-signing-action`), a no-op until the signing secrets
   are configured. Onboarding steps in `docs/signing-setup.md`.
 
+### Fixed (post-rc.7 bench test)
+
+- **Installer can now replace a running copy.** The app is a windowless systray process that
+  Windows Restart Manager couldn't reliably close, so installing over a running instance hung.
+  The installer now disables Restart Manager (`CloseApplications=no`) and terminates the old
+  instance itself before copying files; if it closed a running copy, it **relaunches the app**
+  afterward so fan control resumes.
+- **Preferences: OK now applies and closes.** The dialog is modeless, where a button's
+  `DialogResult` does not auto-close the window — OK applied settings but left the pane open.
+  OK now applies then closes; Cancel closes without saving; Apply applies and stays open.
+
 ### Security / Operational notes
 
 - **Unsigned build.** Windows SmartScreen will warn on first run. Code-signing is wired

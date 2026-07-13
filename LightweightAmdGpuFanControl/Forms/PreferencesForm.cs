@@ -324,6 +324,10 @@ public class PreferencesForm : Form
             AutoSize = true,
             Margin = new Padding(3)
         };
+        // This form is shown modeless (Show(), not ShowDialog) so the tray keeps running and the
+        // status timer stays live — which means a button's DialogResult does NOT auto-close it.
+        // Close explicitly. Cancel discards (no ApplySettings).
+        cancelButton.Click += (_, _) => Close();
 
         var okButton = new Button
         {
@@ -332,7 +336,8 @@ public class PreferencesForm : Form
             AutoSize = true,
             Margin = new Padding(3)
         };
-        okButton.Click += (_, _) => ApplySettings();
+        // OK applies the pending settings, then closes the pane. (Apply applies and stays open.)
+        okButton.Click += (_, _) => { ApplySettings(); Close(); };
 
         var applyButton = new Button
         {

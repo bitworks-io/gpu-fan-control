@@ -14,8 +14,11 @@ public static class AppLinks
     /// <summary>Bitworks website.</summary>
     public const string WebsiteUrl = "https://bitworks.io";
 
-    /// <summary>Fan-control troubleshooting help.</summary>
-    public const string FanHelpUrl = "https://help.argusmonitor.com/GPUfancontrolforAMDRadeon.html";
+    /// <summary>GitHub Issues — where users report bugs / problems.</summary>
+    public const string IssuesUrl = "https://github.com/bitworks-io/amd-gpu-fan-control/issues";
+
+    /// <summary>Fan-control troubleshooting help — the project README's troubleshooting section.</summary>
+    public const string FanHelpUrl = "https://github.com/bitworks-io/amd-gpu-fan-control#troubleshooting-fan-control-not-working";
 
     /// <summary>Opens a URL in the user's default browser. Best-effort; never throws.</summary>
     public static void Open(string url)

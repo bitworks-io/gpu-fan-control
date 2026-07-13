@@ -148,18 +148,7 @@ public class FanControlService
             action();
     }
 
-    private static void OpenHelp()
-    {
-        try
-        {
-            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
-            {
-                FileName = "https://help.argusmonitor.com/GPUfancontrolforAMDRadeon.html",
-                UseShellExecute = true
-            });
-        }
-        catch { }
-    }
+    private static void OpenHelp() => AppLinks.Open(AppLinks.FanHelpUrl);
 
     /// <summary>Pause control and hand every GPU back to the driver's automatic curve.</summary>
     public void Pause()

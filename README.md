@@ -116,7 +116,7 @@ Windows VM / Apple Silicon / CI build guidance, and
 ## Reporting Issues
 
 - Bugs and problems: please open a
-  [GitHub issue](https://github.com/bitworks-io/amd-gpu-fan-control/issues)
+  [GitHub issue](https://github.com/bitworks-io/gpu-fan-control/issues)
   on this repository.
 - Feature requests are welcome via GitHub issues, or through the
   [Bitworks contact form](https://bitworks.io/contact-us/).

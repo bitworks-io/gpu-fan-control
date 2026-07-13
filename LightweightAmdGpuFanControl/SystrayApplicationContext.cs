@@ -72,6 +72,9 @@ public sealed class SystrayApplicationContext : ApplicationContext
             {
                 text = "Lightweight AMD GPU Fan Control";
             }
+
+            if (_fanControlService.IsContentionMode)
+                text += " · reduced polling";
         }
 
         // NotifyIcon.Text has a 63-character hard limit; truncate to avoid an exception.

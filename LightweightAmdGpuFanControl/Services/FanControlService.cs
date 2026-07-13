@@ -17,7 +17,10 @@ namespace LightweightAmdGpuFanControl.Services;
 /// </summary>
 public class FanControlService
 {
-    private const int PollIntervalMs = 2500;
+    private const int NormalPollIntervalMs = 2500;
+    private const int ContentionPollIntervalMs = 6000; // back off when other GPU monitors are running
+    private const int ReassertEveryTicks = 24;         // re-write the fan setpoint ~periodically even if unchanged
+    private const int DetectEveryTicks = 12;           // process-scan cadence
 
     private readonly SettingsService _settingsService;
     private readonly LogService _logService;
@@ -35,6 +38,10 @@ public class FanControlService
     private volatile bool _disposed;
     private volatile IReadOnlyList<GpuStatus> _latestStatuses = Array.Empty<GpuStatus>();
     private int _pollGate;
+    private int _pollCount;
+    private volatile bool _contentionMode;
+    private volatile bool _warnedContention;
+    private volatile IReadOnlyList<string> _activeMonitors = Array.Empty<string>();
 
     public FanControlService(SettingsService settingsService, LogService logService)
     {
@@ -50,6 +57,12 @@ public class FanControlService
 
     /// <summary>True once at least one controllable GPU channel was found.</summary>
     public bool HasChannels => _channels.Count > 0;
+
+    /// <summary>True while polling has backed off because another GPU monitoring tool is running.</summary>
+    public bool IsContentionMode => _contentionMode;
+
+    /// <summary>Display names of currently detected third-party GPU monitoring tools.</summary>
+    public IReadOnlyList<string> ActiveMonitors => _activeMonitors;
 
     public void Start(SystrayApplicationContext context, NotifyIcon notifyIcon)
     {
@@ -79,7 +92,7 @@ public class FanControlService
         // no two threads touch the shared native context at once.
         System.Threading.Tasks.Task.Run(RunStartupTests);
 
-        _timer = new System.Threading.Timer(_ => PollAndAdjust(), null, 1000, PollIntervalMs);
+        _timer = new System.Threading.Timer(_ => PollAndAdjust(), null, 1000, NormalPollIntervalMs);
     }
 
     /// <summary>Reconcile detected GPUs into settings so the UI has entries to toggle.</summary>
@@ -162,6 +175,7 @@ public class FanControlService
                 {
                     channel.Backend.RestoreAutomaticFanControl();
                     channel.ControlActive = false;
+                    channel.LastAppliedPercent = -1;
                 }
             }
         }
@@ -198,6 +212,7 @@ public class FanControlService
                 {
                     channel.Backend.RestoreAutomaticFanControl();
                     channel.ControlActive = false;
+                    channel.LastAppliedPercent = -1;
                 }
                 catch (Exception ex)
                 {
@@ -218,6 +233,13 @@ public class FanControlService
 
         try
         {
+            // Detection runs inside the try/finally (like every other gated step) so a failure
+            // here — e.g. _logService.Log throwing on a full disk — still releases _pollGate via
+            // the finally below instead of wedging the poll loop shut forever.
+            _pollCount++;
+            if (_pollCount % DetectEveryTicks == 1)
+                UpdateContentionState();
+
             var settings = _settingsService.Load();
             var detectedIds = _channels.Select(c => c.Backend.GpuId).ToList();
             var enabledIds = new HashSet<string>(GpuEnablement.Reconcile(detectedIds, settings)
@@ -262,6 +284,44 @@ public class FanControlService
         }
     }
 
+    /// <summary>
+    /// Scans for third-party GPU monitoring tools and adjusts polling cadence to reduce
+    /// sensor-bus contention. Pure process enumeration — must not be called under _controlLock.
+    /// </summary>
+    private void UpdateContentionState()
+    {
+        IReadOnlyList<string> monitors;
+        try { monitors = MonitoringToolDetector.GetActiveMonitors(); }
+        catch { return; }
+        bool now = monitors.Count > 0;
+        _activeMonitors = monitors;
+        if (now == _contentionMode) return;
+
+        _contentionMode = now;
+        int interval = now ? ContentionPollIntervalMs : NormalPollIntervalMs;
+        try { _timer?.Change(interval, interval); } catch { }
+        _logService.Log(now
+            ? $"GPU monitoring tools detected ({string.Join(", ", monitors)}); reduced fan-control polling to {interval} ms to limit sensor-bus contention."
+            : "No third-party GPU monitors detected; restored normal fan-control polling.");
+
+        if (now && !_warnedContention)
+        {
+            _warnedContention = true;
+            var icon = _notifyIcon;
+            if (icon != null)
+            {
+                var names = string.Join(", ", monitors);
+                PostToUi(() =>
+                {
+                    icon.BalloonTipClicked += (_, _) => OpenHelp();
+                    icon.ShowBalloonTip(8000, "GPU monitoring tools detected",
+                        $"{names} is running. Running multiple GPU monitoring tools at once can destabilize the AMD driver (crashes / \"green screen\") due to sensor-bus contention. This app has reduced its polling; for best stability, avoid running several GPU monitors together.",
+                        ToolTipIcon.Warning);
+                });
+            }
+        }
+    }
+
     /// <summary>Applies one channel's decision. Caller holds <c>_controlLock</c>.</summary>
     private GpuStatus AdjustChannel(ControlChannel channel, AppSettings settings, bool enabled)
     {
@@ -278,6 +338,7 @@ public class FanControlService
             {
                 backend.RestoreAutomaticFanControl();
                 channel.ControlActive = false;
+                channel.LastAppliedPercent = -1;
             }
             var telemetry = SafeTelemetry(backend);
             return new GpuStatus(backend.AdapterName, backend.GpuId, enabled, false,
@@ -291,11 +352,17 @@ public class FanControlService
         {
             backend.RestoreAutomaticFanControl();
             channel.ControlActive = false;
+            channel.LastAppliedPercent = -1;
             _logService.Log($"{backend.AdapterName}: sensor read failed repeatedly; relinquished to driver automatic.");
         }
         else
         {
-            backend.SetFanPercent(decision.Percent);
+            bool reassert = (_pollCount % ReassertEveryTicks) == 0;
+            if (decision.Percent != channel.LastAppliedPercent || reassert)
+            {
+                backend.SetFanPercent(decision.Percent);
+                channel.LastAppliedPercent = decision.Percent;
+            }
             channel.ControlActive = true;
             fanPercent = decision.Percent;
         }
@@ -331,5 +398,6 @@ public class FanControlService
         public volatile bool TestCompleted;
         public volatile bool TestPassed;
         public bool ControlActive; // only mutated under _controlLock
+        public int LastAppliedPercent = -1; // only mutated under _controlLock
     }
 }

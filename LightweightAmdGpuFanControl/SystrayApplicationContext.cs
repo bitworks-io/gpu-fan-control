@@ -148,6 +148,7 @@ public sealed class SystrayApplicationContext : ApplicationContext
 
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("Help / Fan control not working", null, (_, _) => OpenFanControlHelp());
+        menu.Items.Add("Report an issue…", null, (_, _) => AppLinks.Open(AppLinks.IssuesUrl));
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("Exit", null, (_, _) => Exit());
 

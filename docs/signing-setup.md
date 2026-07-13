@@ -92,32 +92,40 @@ User Access Administrator) on the subscription so you can also assign roles in s
 
 5. **Create an app registration + federated credential (for GitHub Actions, passwordless).**
    The CI signs **only on release (`v*` tag) builds** and uses OpenID Connect, so **no secret
-   is stored** in the repo. The federated credential must match the **tag** token subject —
-   a `main`/branch credential will *not* authenticate the release build, and every release is
-   a new tag, so you can't pre-register one exact tag name.
+   is stored** in the repo. The federated credential (FIC) must match the OIDC token **subject**
+   the release build presents.
+
    - Microsoft Entra ID → *App registrations* → *New registration* (name e.g.
      `github-gpu-fan-control-signing`). Note its **Application (client) ID** and
      **Directory (tenant) ID**.
-   - On that app → *Certificates & secrets* → *Federated credentials* → *Add credential*.
-     Basic federated credentials are exact-match (no wildcards), so use **one** of:
-     - **Flexible federated credential** *(recommended)* — choose the flexible/advanced option
-       and set a subject **claims-matching expression** matching
-       `repo:bitworks-io/gpu-fan-control:ref:refs/tags/*`. One credential covers every
-       future `v*` release.
-     - **GitHub Environment credential** — create a GitHub Actions Environment (e.g. `release`),
-       add `environment: release` to the workflow's `build` job, and register an
-       **Environment**-type credential named `release`. Subject
-       `repo:bitworks-io/gpu-fan-control:environment:release` is one exact string good for
-       all releases. (Requires the small workflow edit.)
-     - **Per-tag credential** — entity type **Tag**, exact tag name. Works, but you must add a
-       new credential before every release; only sane for infrequent releases.
+   - On that app → *Certificates & secrets* → *Federated credentials* → *Add credential* →
+     scenario **GitHub Actions deploying Azure resources**. Use the **Environment** entity type:
 
-   *(Fallback — client secret instead of OIDC: create a client secret on the app and wire it
-   per the note in §2. A secret is ref-agnostic, so it **sidesteps this tag-subject matching
-   entirely** — at the cost of a long-lived credential. GitHub encrypts repo secrets and never
-   exposes them to forked-PR builds, so the public-repo exposure risk is mild. OIDC is still
-   preferred, but the secret path is the lowest-friction way to get signing working if flexible
-   FICs give you trouble.)*
+     **Recommended: Environment credential.** Organization `bitworks-io`, Repository
+     `gpu-fan-control`, **Entity type = Environment**, **Environment = `release`**. This yields
+     subject `repo:bitworks-io/gpu-fan-control:environment:release` — one exact-match credential
+     that covers **every** release regardless of tag name, is GA (not a preview feature), and is
+     the most controllable (only jobs targeting the `release` environment can mint the token,
+     with an optional required-reviewer gate). It requires two matching pieces (see below).
+
+     For this to work, the subject must line up in **three** places — all `release`:
+     1. this Azure FIC (Environment field),
+     2. a **GitHub Environment** named `release` (repo → Settings → Environments → New
+        environment), and
+     3. the workflow's `build` job, which targets it **on tag builds only** via
+        `environment: ${{ startsWith(github.ref, 'refs/tags/v') && 'release' || '' }}`
+        (already wired in [`build-windows.yml`](../.github/workflows/build-windows.yml)).
+
+   **Why not the other entity types:** *Branch* wouldn't match — the release build's subject is
+   `…:ref:refs/tags/v…`, not `…:ref:refs/heads/…`. *Pull request* is a security anti-pattern (never
+   let a PR obtain the signing identity) and PR builds don't sign anyway. *Tag* works but a standard
+   tag FIC is exact-match (a new credential every release), and the `refs/tags/*` **wildcard** needs a
+   **flexible** FIC — a preview feature whose portal support is uneven, and where a `*` typed into a
+   *standard* credential is a literal, not a wildcard (a common cause of `AADSTS700213`).
+
+   *(Fallback — client secret instead of OIDC: create a client secret on the app and pass it to the
+   signing action directly per the note in §2. Ref-agnostic, but stores a long-lived credential;
+   OIDC + Environment is preferred.)*
 
 6. **Grant the signing role.** Portal (the only web option): open the **Artifact Signing
    account** → **Access control (IAM)** → **Add → Add role assignment** → *Roles* tab, search
@@ -150,7 +158,7 @@ User Access Administrator) on the subscription so you can also assign roles in s
 
    No `AZURE_CLIENT_SECRET` is needed with OIDC.
 
-Once those six secrets exist, the next `main`/tag build signs the installer automatically.
+Once those six secrets exist, the next **`v*` tag** build signs the installer automatically.
 Until they exist, every build stays **green and unsigned** — the signing steps are skipped.
 
 ---
@@ -159,6 +167,10 @@ Until they exist, every build stays **green and unsigned** — the signing steps
 
 [`.github/workflows/build-windows.yml`](../.github/workflows/build-windows.yml) `build` job:
 
+- On `v*` tag builds the job targets the **`release` GitHub Environment**
+  (`environment: ${{ startsWith(github.ref, 'refs/tags/v') && 'release' || '' }}`), so the OIDC
+  token subject is `…:environment:release` — matching the Azure FIC (step 5). PR/main builds
+  evaluate to no environment.
 - Job-level `permissions: id-token: write` lets `azure/login` mint the OIDC token.
 - A gated **`azure/login@v2`** step authenticates via the federated credential (no secret).
 - A gated **`azure/artifact-signing-action@v2`** step signs

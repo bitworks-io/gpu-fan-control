@@ -15,8 +15,9 @@ the rest. Everything below is the discipline around that one action.
 
 1. **`build`** (windows-latest): runs unit tests → `build.ps1` (publish + Inno Setup
    installer) → verifies `ADLXCSharpBind.dll` / `ADLXWrapper.dll` are present →
-   uploads `LightweightAmdGpuFanControl-Setup.exe`. Signing step is a gated no-op
-   (no `SIGN_CERT_BASE64` secret).
+   uploads `LightweightAmdGpuFanControl-Setup.exe`. Signing steps are a gated no-op
+   (skipped while the `AZURE_CLIENT_ID` secret is unset — see
+   [signing-setup.md](signing-setup.md)).
 2. **`release`** (ubuntu-latest, `if: startsWith(github.ref, 'refs/tags/v')`):
    downloads the installer artifact and creates a **GitHub Release** via
    `softprops/action-gh-release@v2`, attaching `Setup.exe`, with
@@ -156,7 +157,9 @@ either line, but CHANGELOG.md must be on the tagged commit.
 
 ## Signing caveat
 
-The build is **unsigned** — Windows SmartScreen warns on first run. Signing is a
-gated CI hook (`SIGN_CERT_BASE64` / `SIGN_CERT_PASSWORD` secrets + a TODO `signtool`
-block in the workflow). Configuring a cert is a separate follow-up; it does not block
-the v1.0.0 mechanics.
+The build is **unsigned by default** — Windows SmartScreen warns on first run. The
+workflow has real, gated **Azure Artifact Signing** steps (`azure/login` +
+`azure/artifact-signing-action`) that stay skipped until six `AZURE_*` repo secrets
+are set; see [signing-setup.md](signing-setup.md) for the one-time Azure onboarding.
+Provisioning the account is a separate follow-up; it does not block the v1.0.0 mechanics.
+Note: even once signed, SmartScreen reputation still accrues per file over download volume.

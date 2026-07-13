@@ -70,16 +70,19 @@ fan-curve UI. Publisher: Bitworks (bitworks.io).
   (GPU-Z, MSI Afterburner, HWiNFO, AIDA64, …), reduces sensor polling while they run, stops redundant
   fan writes, and warns once — to limit the AMD-driver sensor-bus contention that can cause crashes /
   "green screen" when several GPU tools poll at once.
-- **Code-signing pipeline prepared.** CI has a gated Azure Trusted Signing step (no-op until the
-  signing secrets are configured).
+- **Code-signing pipeline prepared.** CI has gated Azure Artifact Signing steps (passwordless
+  OIDC via `azure/login` + `azure/artifact-signing-action`), a no-op until the signing secrets
+  are configured. Onboarding steps in `docs/signing-setup.md`.
 
 ### Security / Operational notes
 
-- **Unsigned build.** Windows SmartScreen will warn on first run. Code-signing is a
-  gated CI hook (`SIGN_CERT_BASE64`) that is currently a no-op — no certificate yet.
+- **Unsigned build.** Windows SmartScreen will warn on first run. Code-signing is wired
+  as gated **Azure Artifact Signing** CI steps (`azure/login` OIDC +
+  `azure/artifact-signing-action`) that stay a no-op until the `AZURE_*` repo secrets are
+  set — no signing account provisioned yet. See `docs/signing-setup.md`.
 - Runs as `asInvoker` (no elevation); installer `PrivilegesRequired=lowest`. The
   no-admin fan-set assumption is validated by Phase 5.
 - No network calls except user-initiated browser opens to bitworks.io. No telemetry,
   no secrets.
 
-[1.0.0]: https://github.com/bitworks-io/amd-gpu-fan-control/releases/tag/v1.0.0
+[1.0.0]: https://github.com/bitworks-io/gpu-fan-control/releases/tag/v1.0.0

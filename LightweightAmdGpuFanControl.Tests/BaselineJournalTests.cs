@@ -225,6 +225,44 @@ public class BaselineJournalTests
     }
 
     [Fact]
+    public void DecisionLine_AppWritten_ShowsValues()
+    {
+        var captured = new FanBaseline(new[] { 60, 60, 60, 60, 60 }, true, false);
+        var c = BaselinePlanner.Choose(Id(), captured, Dirty(Id()));
+        var line = c.DecisionLine("GPU A");
+        Assert.StartsWith("journal: 'GPU A' dirty entry -> app-written (", line);
+        Assert.Contains("current=[60,60,60,60,60] zeroRpm=off;", line);
+        Assert.Contains("journal=[20,30,40,50,60] zeroRpm=on;", line);
+        Assert.Contains(c.Reason, line);
+        Assert.EndsWith(")", line);
+    }
+
+    [Fact]
+    public void DecisionLine_Stale_ShowsValues()
+    {
+        var captured = new FanBaseline(new[] { 25, 35, 50, 70, 90 }, false, false);
+        var c = BaselinePlanner.Choose(Id(), captured, Dirty(Id(), zeroSupported: false));
+        var line = c.DecisionLine("GPU A");
+        Assert.StartsWith("journal: 'GPU A' dirty entry -> stale (", line);
+        Assert.Contains("current=[25,35,50,70,90] zeroRpm=n/a;", line);
+        Assert.Contains("journal=[20,30,40,50,60] zeroRpm=n/a;", line);
+        Assert.Contains("stale", line);
+    }
+
+    [Fact]
+    public void DecisionLine_AlreadyRestoredAndInvalid_Decisions()
+    {
+        var e = Dirty(Id(), new[] { 20, 30, 40, 50, 60 });
+        var same = new FanBaseline(new[] { 20, 30, 40, 50, 60 }, true, true);
+        Assert.Contains("-> already-restored (", BaselinePlanner.Choose(Id(), same, e).DecisionLine("GPU A"));
+        var bad = Dirty(Id(), new[] { 20, 30, 40, 50, 101 });
+        Assert.Contains("-> invalid (", BaselinePlanner.Choose(Id(), Captured(), bad).DecisionLine("GPU A"));
+        var nullSpeeds = Dirty(Id());
+        nullSpeeds.Speeds = null;
+        Assert.Contains("journal=[]", BaselinePlanner.Choose(Id(), Captured(), nullSpeeds).DecisionLine("GPU A"));
+    }
+
+    [Fact]
     public void LooksAppWritten_Cases()
     {
         Assert.True(BaselinePlanner.LooksAppWritten(new FanBaseline(new[] { 20, 20, 20, 20, 20 }, true, false)));

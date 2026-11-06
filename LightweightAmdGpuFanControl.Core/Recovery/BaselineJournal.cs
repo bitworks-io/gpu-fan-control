@@ -131,9 +131,38 @@ public enum BaselineChoiceKind { NoEntry, Clean, Invalid, AlreadyRestored, Stale
 public sealed class BaselineChoice
 {
     public BaselineChoiceKind Kind { get; init; }
+    /// <summary>The GPU's state when the choice was made; kept so <see cref="DecisionLine"/> can show the deciding values.</summary>
+    public FanBaseline? CapturedState { get; init; }
+    /// <summary>The journal entry that was considered, if any.</summary>
+    public BaselineEntry? Entry { get; init; }
     public FanBaseline Baseline { get; init; } = new(Array.Empty<int>(), false, false);
     public BaselineSource Source { get; init; }
     public string Reason { get; init; } = "";
+
+    /// <summary>
+    /// One log line with the values that decided the restore baseline:
+    /// <c>journal: '&lt;name&gt;' dirty entry -&gt; &lt;decision&gt; (current=[..] zeroRpm=..; journal=[..] zeroRpm=..; &lt;reason&gt;)</c>.
+    /// </summary>
+    public string DecisionLine(string name)
+    {
+        string decision = Kind switch
+        {
+            BaselineChoiceKind.Journal => "app-written",
+            BaselineChoiceKind.Stale => "stale",
+            BaselineChoiceKind.AlreadyRestored => "already-restored",
+            BaselineChoiceKind.Invalid => "invalid",
+            BaselineChoiceKind.Clean => "clean",
+            _ => "no-entry",
+        };
+        string current = CapturedState == null ? "current=[] zeroRpm=n/a"
+            : "current=" + Speeds(CapturedState.Speeds) + " zeroRpm=" + Flag(CapturedState.ZeroRpmSupported, CapturedState.ZeroRpm);
+        string journal = Entry == null ? "journal=[] zeroRpm=n/a"
+            : "journal=" + Speeds(Entry.Speeds) + " zeroRpm=" + Flag(Entry.ZeroRpmSupported, Entry.ZeroRpm);
+        return $"journal: '{name}' dirty entry -> {decision} ({current}; {journal}; {Reason})";
+    }
+
+    private static string Speeds(IEnumerable<int>? s) => "[" + string.Join(",", s ?? Array.Empty<int>()) + "]";
+    private static string Flag(bool supported, bool on) => !supported ? "n/a" : on ? "on" : "off";
 }
 
 public static class BaselinePlanner
@@ -162,6 +191,8 @@ public static class BaselinePlanner
         return new BaselineChoice
         {
             Kind = BaselineChoiceKind.Journal,
+            CapturedState = captured,
+            Entry = entry,
             Baseline = new FanBaseline(entry.Speeds.ToArray(), entry.ZeroRpmSupported, entry.ZeroRpm),
             Source = BaselineSource.Journal,
             Reason = "recovering a fan state left by an unclean stop (journal " + entry.Utc + ")",
@@ -170,6 +201,8 @@ public static class BaselinePlanner
         BaselineChoice Captured(BaselineChoiceKind kind, string why) => new()
         {
             Kind = kind,
+            CapturedState = captured,
+            Entry = entry,
             Baseline = captured,
             Source = BaselineSource.Captured,
             Reason = why + "; using the captured state",

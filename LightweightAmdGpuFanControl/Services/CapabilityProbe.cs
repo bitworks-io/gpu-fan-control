@@ -89,7 +89,12 @@ internal static class CapabilityProbe
         }
     }
 
-    private static void ReadModules(ProbeReport report)
+    /// <summary>
+    /// Adds every loaded <c>ati*</c>/<c>amd*</c> module not already listed. Called while each source still
+    /// holds its native session (and again at the end), because a module that ADLX or ADL pulls in by bare
+    /// name — the mixed-driver-line case E1 must catch — can be unloaded again when that session is torn down.
+    /// </summary>
+    internal static void ReadModules(ProbeReport report)
     {
         try
         {
@@ -109,6 +114,8 @@ internal static class CapabilityProbe
                     continue;
 
                 string path = m.FileName ?? "";
+                if (report.Modules.Any(x => string.Equals(x.Path, path, StringComparison.OrdinalIgnoreCase)))
+                    continue;
                 string? version = Win32.BinaryVersion(path);
                 var module = new ProbeModule { Name = name, Path = path, Version = version };
 
@@ -183,6 +190,8 @@ internal sealed class AdlxCapabilitySource : IFanCapabilitySource
                     entry.Error = $"{ex.GetType().Name}: {ex.Message}";
                 }
             }
+
+            CapabilityProbe.ReadModules(report); // while the ADLX session still holds its modules
         }
         catch (Exception ex)
         {
@@ -242,6 +251,8 @@ internal sealed class AdlCapabilitySource : IFanCapabilitySource
                     Family = OverdriveRouting.Classify(version).ToString(),
                 });
             }
+
+            CapabilityProbe.ReadModules(report); // while the ADL handle is still open
         }
         catch (Exception ex)
         {

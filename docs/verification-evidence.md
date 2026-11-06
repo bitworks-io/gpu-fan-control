@@ -40,6 +40,19 @@ gh run download <run-id> -n LightweightAmdGpuFanControl-Setup
 - Skipped checks and reason: installer signing (no cert secret); all on-hardware behavior (no AMD GPU on this macOS host).
 - Residual risk: **all runtime fan behavior, restore-to-auto, and the no-admin assumption are unverified** — they require a real AMD Windows PC (Phase 5 checklist in `agent-handoff.md`).
 
+## 2026-11-06 — v1.1.0-rc.1 release check (pre-hardware)
+
+- **Tag:** annotated `v1.1.0-rc.1` on `06e4724` (main, push run `42235778427` green). The tag run `42246782110` passed: build (tests, installer, CI-only signing) and release.
+- **GitHub:** `prerelease: true`, `draft: false`; `releases/latest` is still `v1.0.0`.
+- **Installer:** `LightweightAmdGpuFanControl-Setup.exe`, 2,759,880 bytes, SHA-256 `8024270d9ff312d1d6d520a524f2d9e97d3441954ac1551f2b47aaadb3a68e9d`. This matches GitHub's asset digest. PE32 GUI, ProductVersion `1.1.0`.
+- **Authenticode, checked on macOS:**
+  - The PE image hash equals the signed digest, and messageDigest equals the hash of the signed content.
+  - The RSA signature over the signed attributes verifies with the signer certificate.
+  - Signer: `O=Bitworks LLC, CN=Bitworks LLC`, issued by Microsoft ID Verified CS AOC CA 03, then PCA 2021, then the Identity Verification Root 2020. The chain is consistent within the certificate bag.
+  - It carries an RFC 3161 timestamp at 2026-11-06T15:54:18Z, inside the leaf certificate's 3-day validity.
+  - v1.0.0's leaf was issued by EOC CA 04 rather than AOC CA 03, because Azure Artifact Signing rotates its intermediates. This does not affect the downstream installer's publisher check. That check is `WinVerifyTrust` with the full chain to a trusted root, plus the leaf subject `O=Bitworks LLC`. It compares no issuer, serial or thumbprint.
+- **Not checked:** trust in the Windows trust store, and the timestamp token's own signature. Both are covered by E1 Step 0 (`Get-AuthenticodeSignature` on the bench before anything is installed).
+
 ## 2026-11-06 — 1.1.0 implementation (pre-hardware)
 
 - **Core unit tests:** `DOTNET_ROLL_FORWARD=Major dotnet test LightweightAmdGpuFanControl.Tests` → **Passed: 161, Failed: 0** (net8.0). Covers the INF resolver, bound-line planner, signer pin, Overdrive routing, launch options and exit codes (including `--stop`), probe report, `status.json` model and `--status-file` validation, atomic file write, the restore journal and its staleness classification, and source guards for `--probe` (no fan writes) and `--stop` (open-only, never kills).

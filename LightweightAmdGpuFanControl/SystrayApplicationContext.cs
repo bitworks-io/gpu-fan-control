@@ -1,4 +1,7 @@
 using System.Diagnostics;
+using System.Threading;
+using LightweightAmdGpuFanControl.Automation;
+using LightweightAmdGpuFanControl.Cli;
 using LightweightAmdGpuFanControl.Forms;
 using LightweightAmdGpuFanControl.Models;
 using LightweightAmdGpuFanControl.Services;
@@ -16,14 +19,20 @@ public sealed class SystrayApplicationContext : ApplicationContext
     private readonly FanControlService _fanControlService;
     private readonly LogService _logService;
     private readonly System.Windows.Forms.Timer _tooltipTimer;
+    private readonly AutomationStatusWriter? _status;
+    private readonly SynchronizationContext _uiContext;
     private PreferencesForm? _preferencesForm;
 
-    public SystrayApplicationContext()
+    /// <summary>Set when the process should exit with this code (automation runs only); null for a normal tray run.</summary>
+    public int? ExitCode { get; private set; }
+
+    internal SystrayApplicationContext(LogService logService, LaunchOptions options, AutomationStatusWriter? status)
     {
         _settingsService = new SettingsService();
         _startupService = new StartupService();
-        _logService = new LogService();
-        _fanControlService = new FanControlService(_settingsService, _logService);
+        _logService = logService;
+        _status = options.Automation ? status : null;
+        _fanControlService = new FanControlService(_settingsService, _logService, automation: options.Automation);
 
         _notifyIcon = new NotifyIcon
         {
@@ -34,7 +43,45 @@ public sealed class SystrayApplicationContext : ApplicationContext
 
         _notifyIcon.DoubleClick += (_, _) => ShowPreferences();
         _notifyIcon.ContextMenuStrip = CreateContextMenu();
-        _fanControlService.Start(this, _notifyIcon);
+
+        var current = SynchronizationContext.Current;
+        if (current == null)
+        {
+            current = new WindowsFormsSynchronizationContext();
+            SynchronizationContext.SetSynchronizationContext(current);
+        }
+        _uiContext = current;
+
+        // Created disabled so an early return below can dispose it; enabled once wiring is complete.
+        _tooltipTimer = new System.Windows.Forms.Timer { Interval = 2500, Enabled = false };
+
+        if (_status != null)
+        {
+            _fanControlService.StartupTestsCompleted += (anyPassed, passed) =>
+            {
+                if (anyPassed)
+                {
+                    _status.Engaged(passed);
+                }
+                else
+                {
+                    _status.Unavailable(StatusReasons.SelfTestFailed);
+                    _uiContext.Post(_ => ExitWithCode(ExitCodes.NothingToDo), null);
+                }
+            };
+        }
+
+        bool started = _fanControlService.Start(this, _notifyIcon);
+        if (!started && options.Automation)
+        {
+            _status?.Unavailable(StatusReasons.NoBackend);
+            ExitCode = ExitCodes.NothingToDo;
+            _tooltipTimer.Stop();
+            _tooltipTimer.Dispose();
+            _notifyIcon.Visible = false;
+            _notifyIcon.Dispose();
+            return;
+        }
 
         // Best-effort restore of automatic fan control on any exit path, including crashes and
         // logoff/shutdown. A hard kill (Task Manager / power loss) cannot run these; control is
@@ -50,7 +97,7 @@ public sealed class SystrayApplicationContext : ApplicationContext
         TaskScheduler.UnobservedTaskException += (_, e) => { _fanControlService.RestoreAll(); e.SetObserved(); };
 
         // Live tooltip refresh (~2.5s matches poll interval).
-        _tooltipTimer = new System.Windows.Forms.Timer { Interval = 2500, Enabled = true };
+        _tooltipTimer.Enabled = true;
         _tooltipTimer.Tick += (_, _) => RefreshTooltip();
     }
 
@@ -250,6 +297,22 @@ public sealed class SystrayApplicationContext : ApplicationContext
         _tooltipTimer.Stop();
         _tooltipTimer.Dispose();
         _fanControlService.Stop();
+        _status?.Stopped();
+        _notifyIcon.Visible = false;
+        _notifyIcon.Dispose();
+        Application.Exit();
+    }
+
+    /// <summary>
+    /// Automation exit with a specific code. Same teardown as <see cref="Exit"/> but does not write
+    /// <c>stopped</c>: the status file already says <c>unavailable</c>.
+    /// </summary>
+    private void ExitWithCode(int code)
+    {
+        ExitCode = code;
+        _tooltipTimer.Stop();
+        _tooltipTimer.Dispose();
+        _fanControlService.Stop();
         _notifyIcon.Visible = false;
         _notifyIcon.Dispose();
         Application.Exit();
@@ -265,6 +328,7 @@ public sealed class SystrayApplicationContext : ApplicationContext
     {
         try { _tooltipTimer.Stop(); } catch { }
         try { _fanControlService.Stop(); } catch { } // restores every GPU to auto + tears down the session
+        try { _status?.Stopped(); } catch { }
         try { _notifyIcon.Visible = false; _notifyIcon.Dispose(); } catch { }
         Environment.Exit(0);
     }

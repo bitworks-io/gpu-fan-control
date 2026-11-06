@@ -1,5 +1,6 @@
 using System.Threading;
 using System.Windows.Forms;
+using LightweightAmdGpuFanControl.Automation;
 using LightweightAmdGpuFanControl.Control;
 using LightweightAmdGpuFanControl.Gpu;
 using LightweightAmdGpuFanControl.Gpu.Native;
@@ -25,6 +26,7 @@ public class FanControlService
 
     private readonly SettingsService _settingsService;
     private readonly LogService _logService;
+    private readonly bool _automation;
     private readonly FanControlTestService _fanControlTest = new();
     private readonly FanControlPolicy _policy = new();
     private readonly object _controlLock = new();
@@ -44,11 +46,18 @@ public class FanControlService
     private volatile bool _warnedContention;
     private volatile IReadOnlyList<string> _activeMonitors = Array.Empty<string>();
 
-    public FanControlService(SettingsService settingsService, LogService logService)
+    public FanControlService(SettingsService settingsService, LogService logService, bool automation = false)
     {
         _settingsService = settingsService;
         _logService = logService;
+        _automation = automation;
     }
+
+    /// <summary>
+    /// Raised once the startup self-tests have finished (not when the service is disposed first), on a
+    /// background thread. Arguments: whether any channel passed, and one entry per passing channel.
+    /// </summary>
+    public event Action<bool, IReadOnlyList<StatusGpu>>? StartupTestsCompleted;
 
     /// <summary>Live per-GPU snapshot for the UI. Empty until the first post-test poll.</summary>
     public IReadOnlyList<GpuStatus> LatestStatuses => _latestStatuses;
@@ -65,7 +74,8 @@ public class FanControlService
     /// <summary>Display names of currently detected third-party GPU monitoring tools.</summary>
     public IReadOnlyList<string> ActiveMonitors => _activeMonitors;
 
-    public void Start(SystrayApplicationContext context, NotifyIcon notifyIcon)
+    /// <returns>False when no fan-control backend could be initialised.</returns>
+    public bool Start(SystrayApplicationContext context, NotifyIcon notifyIcon)
     {
         _uiContext = SynchronizationContext.Current;
         _notifyIcon = notifyIcon;
@@ -77,6 +87,8 @@ public class FanControlService
         if (_channelSet == null || !_channelSet.HasChannels)
         {
             _logService.Log("No AMD fan-control backend could be initialized.");
+            if (_automation)
+                return false; // unattended: no balloon, no modal dialog
             notifyIcon.BalloonTipClicked += (_, _) => OpenHelp();
             notifyIcon.ShowBalloonTip(5000, "Lightweight AMD GPU Fan Control",
                 "Could not initialize AMD fan control. No supported AMD GPU, driver, or tuning API was found.", ToolTipIcon.Warning);
@@ -85,7 +97,7 @@ public class FanControlService
                 "AMD fan control unavailable",
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Warning);
-            return;
+            return false;
         }
 
         _channels = _channelSet.Channels.Select(b => new ControlChannel(b)).ToList();
@@ -97,6 +109,7 @@ public class FanControlService
         System.Threading.Tasks.Task.Run(RunStartupTests);
 
         _timer = new System.Threading.Timer(_ => PollAndAdjust(), null, 1000, NormalPollIntervalMs);
+        return true;
     }
 
     private void LogLoadedModule(string name)
@@ -125,6 +138,7 @@ public class FanControlService
     private void RunStartupTests()
     {
         bool anyPassed = false;
+        var passed = new List<StatusGpu>();
         foreach (var channel in _channels)
         {
             if (_disposed) return;
@@ -137,6 +151,8 @@ public class FanControlService
             channel.TestPassed = ok;
             channel.TestCompleted = true;
             anyPassed |= ok;
+            if (ok)
+                passed.Add(new StatusGpu { Name = channel.Backend.AdapterName, Backend = channel.Backend.BackendName });
         }
 
         _testsComplete = true;
@@ -145,7 +161,7 @@ public class FanControlService
         {
             _logService.Log("Startup fan control test failed on all channels.");
             var icon = _notifyIcon;
-            if (icon != null)
+            if (icon != null && !_automation)
             {
                 PostToUi(() =>
                 {
@@ -155,6 +171,15 @@ public class FanControlService
                         ToolTipIcon.Warning);
                 });
             }
+        }
+
+        try
+        {
+            StartupTestsCompleted?.Invoke(anyPassed, passed);
+        }
+        catch (Exception ex)
+        {
+            _logService.Log("Startup-test completion handler failed.", ex);
         }
     }
 

@@ -51,7 +51,23 @@ static class Program
         Application.EnableVisualStyles();
         Application.SetCompatibleTextRenderingDefault(false);
         Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
-        Application.Run(new SystrayApplicationContext());
-        return 0;
+
+        AutomationStatusWriter? status = null;
+        if (options.Automation)
+        {
+            status = new AutomationStatusWriter(AutomationStatusWriter.ResolvePath(options, log), log);
+            status.Starting();
+        }
+
+        var context = new SystrayApplicationContext(log, options, status);
+        if (context.ExitCode.HasValue)
+        {
+            // Automation with no backend: nothing to run, so skip the message loop.
+            context.Dispose();
+            return context.ExitCode.Value;
+        }
+
+        Application.Run(context);
+        return context.ExitCode ?? 0;
     }
 }

@@ -85,8 +85,11 @@ public static class BoundAdlPlanner
     private static bool SameVersion(string? system, string? bound) =>
         system != null && bound != null && string.Equals(system.Trim(), bound.Trim(), StringComparison.Ordinal);
 
+    /// <summary>A prefix test alone would accept <c>root\..\..\elsewhere</c>; relative segments are refused outright.</summary>
     private static bool IsUnder(string path, string rootWithSlash) =>
-        rootWithSlash.Length > 0 && path.StartsWith(rootWithSlash, StringComparison.OrdinalIgnoreCase);
+        rootWithSlash.Length > 0
+        && path.StartsWith(rootWithSlash, StringComparison.OrdinalIgnoreCase)
+        && path.Split('\\').All(s => s != "." && s != "..");
 
     private static BoundAdlDecision Make(BoundAdlKind kind, string reason) => new() { Kind = kind, Reason = reason };
 }

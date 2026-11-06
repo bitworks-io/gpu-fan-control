@@ -76,6 +76,22 @@ public class BoundAdlPlannerTests
     }
 
     [Fact]
+    public void Decide_RelativeSegmentEscapesRoot_Unresolved()
+    {
+        var f = Good();
+        f.StoreInfPath = Root + @"..\..\..\Temp\evilȅ305.inf";
+        Assert.Equal(BoundAdlKind.Unresolved, BoundAdlPlanner.Decide(f).Kind);
+
+        f = Good();
+        f.AtiadlxxPath = Root + @"pkg\..\..\..\..\Temp\atiadlxx.dll";
+        Assert.Equal(BoundAdlKind.Unresolved, BoundAdlPlanner.Decide(f).Kind);
+
+        f = Good();
+        f.AdlxPath = Root + @"pkg\.\amdadlx64.dll";
+        Assert.Equal(BoundAdlKind.Unresolved, BoundAdlPlanner.Decide(f).Kind);
+    }
+
+    [Fact]
     public void Decide_DriverStoreRootWithoutTrailingSlash_StillRequiresBoundary()
     {
         var f = Good();

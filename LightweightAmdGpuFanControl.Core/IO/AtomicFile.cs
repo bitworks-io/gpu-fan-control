@@ -8,9 +8,10 @@ public static class AtomicFile
     /// <summary>
     /// Writes UTF-8 (no BOM) to <c>path + ".tmp"</c>, flushes it to disk, then replaces <paramref name="path"/>
     /// (<see cref="File.Replace(string,string,string?)"/> when it exists, <see cref="File.Move(string,string)"/> otherwise).
-    /// Never throws; on failure the temp file is removed best-effort and <paramref name="error"/> is set.
+    /// With <paramref name="flushToDisk"/> false the OS-level flush is skipped (the stream is still flushed): for
+    /// records whose loss is harmless. Never throws; on failure the temp file is removed best-effort and <paramref name="error"/> is set.
     /// </summary>
-    public static bool TryWriteAllText(string path, string contents, out string? error)
+    public static bool TryWriteAllText(string path, string contents, out string? error, bool flushToDisk = true)
     {
         error = null;
         string tmp = (path ?? "") + ".tmp";
@@ -21,7 +22,8 @@ public static class AtomicFile
             {
                 var bytes = new UTF8Encoding(false).GetBytes(contents ?? "");
                 fs.Write(bytes, 0, bytes.Length);
-                fs.Flush(true);
+                fs.Flush();
+                if (flushToDisk) fs.Flush(true);
             }
             if (File.Exists(path)) File.Replace(tmp, path, null);
             else File.Move(tmp, path);

@@ -8,6 +8,7 @@ public static class StatusReasons
 {
     public const string NoBackend = "no-backend";
     public const string SelfTestFailed = "self-test-failed";
+    public const string NoEnabledGpu = "no-enabled-gpu";
     public const string Exit = "exit";
 }
 

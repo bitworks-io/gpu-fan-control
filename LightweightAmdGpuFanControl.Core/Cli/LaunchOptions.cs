@@ -1,6 +1,6 @@
 namespace LightweightAmdGpuFanControl.Cli;
 
-public enum LaunchMode { Tray, Probe, RestoreAuto }
+public enum LaunchMode { Tray, Probe, RestoreAuto, Stop }
 
 /// <summary>Process exit codes shared by every launch mode.</summary>
 public static class ExitCodes
@@ -32,7 +32,7 @@ public sealed class LaunchOptions
 
     public static LaunchOptions Parse(IReadOnlyList<string>? args)
     {
-        bool probe = false, restore = false, automation = false, noPreload = false;
+        bool probe = false, restore = false, stop = false, automation = false, noPreload = false;
         string? statusFile = null, statusFileError = null;
         var ignored = new List<string>();
 
@@ -43,6 +43,7 @@ public sealed class LaunchOptions
                 string a = args[i] ?? "";
                 if (Is(a, "--probe")) probe = true;
                 else if (Is(a, "--restore-auto")) restore = true;
+                else if (Is(a, "--stop")) stop = true;
                 else if (Is(a, "--automation")) automation = true;
                 else if (Is(a, "--no-preload")) noPreload = true;
                 else if (Is(a, "--status-file"))
@@ -66,11 +67,13 @@ public sealed class LaunchOptions
 
         string? error = null;
         if (probe && restore) error = "--probe and --restore-auto cannot be combined";
+        else if (stop && probe) error = "--stop and --probe cannot be combined";
+        else if (stop && restore) error = "--stop and --restore-auto cannot be combined";
         else if (noPreload && !probe) error = "--no-preload is only valid with --probe";
 
         return new LaunchOptions
         {
-            Mode = probe ? LaunchMode.Probe : restore ? LaunchMode.RestoreAuto : LaunchMode.Tray,
+            Mode = probe ? LaunchMode.Probe : restore ? LaunchMode.RestoreAuto : stop ? LaunchMode.Stop : LaunchMode.Tray,
             Automation = automation,
             NoPreload = noPreload,
             Ignored = ignored,

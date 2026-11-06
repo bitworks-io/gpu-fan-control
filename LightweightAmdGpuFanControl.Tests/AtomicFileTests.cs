@@ -57,4 +57,16 @@ public class AtomicFileTests : IDisposable
         Assert.False(AtomicFile.TryWriteAllText(null!, "x", out var err));
         Assert.False(string.IsNullOrWhiteSpace(err));
     }
+
+    [Fact]
+    public void AtomicFile_NoFlush_StillWrites()
+    {
+        var p = Path.Combine(_dir, "a.json");
+        Assert.True(AtomicFile.TryWriteAllText(p, "one", out var err, flushToDisk: false));
+        Assert.Null(err);
+        Assert.True(AtomicFile.TryWriteAllText(p, "two", out err, flushToDisk: false));
+        Assert.Null(err);
+        Assert.Equal("two", File.ReadAllText(p));
+        Assert.False(File.Exists(p + ".tmp"));
+    }
 }

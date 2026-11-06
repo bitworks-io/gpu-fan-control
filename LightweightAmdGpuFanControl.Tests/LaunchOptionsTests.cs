@@ -139,4 +139,24 @@ public class LaunchOptionsTests
         Assert.Null(o.StatusFile);
         Assert.Null(o.StatusFileError);
     }
+
+    [Fact]
+    public void Parse_Stop()
+    {
+        var o = LaunchOptions.Parse(new[] { "--STOP" });
+        Assert.Equal(LaunchMode.Stop, o.Mode);
+        Assert.Null(o.Error);
+    }
+
+    [Fact]
+    public void Parse_StopWithProbe_UsageError()
+    {
+        Assert.False(string.IsNullOrWhiteSpace(LaunchOptions.Parse(new[] { "--stop", "--probe" }).Error));
+    }
+
+    [Fact]
+    public void Parse_StopWithRestoreAuto_UsageError()
+    {
+        Assert.False(string.IsNullOrWhiteSpace(LaunchOptions.Parse(new[] { "--stop", "--restore-auto" }).Error));
+    }
 }

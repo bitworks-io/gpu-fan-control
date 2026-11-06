@@ -106,19 +106,31 @@ public sealed class BaselineJournal
     }
 
     /// <summary>Removes and returns every entry (dirty or clean) whose key is not among <paramref name="present"/>.</summary>
-    public IReadOnlyList<BaselineEntry> PruneAbsent(IEnumerable<GpuIdentity> present)
+    public IReadOnlyList<BaselineEntry> PruneAbsent(IEnumerable<GpuIdentity> present) => PruneAbsent(present, includeDirty: true);
+
+    /// <summary>
+    /// Removes and returns entries whose key is not among <paramref name="present"/>. An empty <paramref name="present"/>
+    /// (detection failed or nothing enumerated) removes nothing. With <paramref name="includeDirty"/> false a dirty
+    /// entry is never removed, so a GPU that is temporarily absent keeps its recovery record.
+    /// </summary>
+    public IReadOnlyList<BaselineEntry> PruneAbsent(IEnumerable<GpuIdentity> present, bool includeDirty)
     {
         var keys = new HashSet<string>(present.Select(p => p.Key), StringComparer.Ordinal);
-        var removed = Entries.Where(e => !keys.Contains(e.Key)).ToList();
-        Entries.RemoveAll(e => !keys.Contains(e.Key));
+        if (keys.Count == 0) return new List<BaselineEntry>();
+        var removed = Entries.Where(e => !keys.Contains(e.Key) && (includeDirty || !e.Dirty)).ToList();
+        foreach (var e in removed) Entries.Remove(e);
         return removed;
     }
 }
 
 public enum BaselineSource { Captured, Journal }
 
+/// <summary>Why <see cref="BaselinePlanner.Choose"/> picked its baseline. <see cref="Journal"/> is the only kind that restores from the journal.</summary>
+public enum BaselineChoiceKind { NoEntry, Clean, Invalid, AlreadyRestored, Stale, Journal }
+
 public sealed class BaselineChoice
 {
+    public BaselineChoiceKind Kind { get; init; }
     public FanBaseline Baseline { get; init; } = new(Array.Empty<int>(), false, false);
     public BaselineSource Source { get; init; }
     public string Reason { get; init; } = "";
@@ -127,33 +139,55 @@ public sealed class BaselineChoice
 public static class BaselinePlanner
 {
     /// <summary>
-    /// Picks the baseline to restore to. A journal entry is used only when it is a dirty, valid,
-    /// capability-matching record for this exact GPU; anything else keeps the captured state (v1.0 behaviour).
+    /// Picks the baseline to restore to. The journal is used only when the entry is a dirty, valid,
+    /// capability-matching record for this exact GPU AND the GPU's current state looks like one this app wrote;
+    /// anything else keeps the captured state (v1.0 behaviour).
     /// </summary>
     public static BaselineChoice Choose(GpuIdentity id, FanBaseline captured, BaselineEntry? entry)
     {
-        if (entry == null) return Captured("no journal entry");
-        if (!entry.Dirty) return Captured("journal entry is clean");
-        if (!string.Equals(entry.Key, id.Key, StringComparison.Ordinal)) return Captured("journal entry identity differs");
-        if (entry.StateCount != id.StateCount) return Captured("journal tuning-state count differs");
+        if (entry == null) return Captured(BaselineChoiceKind.NoEntry, "no journal entry");
+        if (!entry.Dirty) return Captured(BaselineChoiceKind.Clean, "journal entry is clean");
+        if (!string.Equals(entry.Key, id.Key, StringComparison.Ordinal)) return Captured(BaselineChoiceKind.Invalid, "journal entry identity differs");
+        if (entry.StateCount != id.StateCount) return Captured(BaselineChoiceKind.Invalid, "journal tuning-state count differs");
         if (entry.Speeds == null || entry.Speeds.Length != id.StateCount)
-            return Captured("journal speed count does not match the tuning-state count");
-        if (entry.Speeds.Any(s => s < 0 || s > 100)) return Captured("journal speed outside 0..100");
-        if (entry.ZeroRpmSupported != captured.ZeroRpmSupported) return Captured("zero-RPM capability differs from the journal");
+            return Captured(BaselineChoiceKind.Invalid, "journal speed count does not match the tuning-state count");
+        if (entry.Speeds.Any(s => s < 0 || s > 100)) return Captured(BaselineChoiceKind.Invalid, "journal speed outside 0..100");
+        if (entry.ZeroRpmSupported != captured.ZeroRpmSupported) return Captured(BaselineChoiceKind.Invalid, "zero-RPM capability differs from the journal");
+
+        if (captured.Speeds.SequenceEqual(entry.Speeds) && (!captured.ZeroRpmSupported || captured.ZeroRpm == entry.ZeroRpm))
+            return Captured(BaselineChoiceKind.AlreadyRestored, "current state already equals the journaled pre-app state");
+        if (!LooksAppWritten(captured))
+            return Captured(BaselineChoiceKind.Stale, "current state does not look app-written; the journal entry is stale");
 
         return new BaselineChoice
         {
+            Kind = BaselineChoiceKind.Journal,
             Baseline = new FanBaseline(entry.Speeds.ToArray(), entry.ZeroRpmSupported, entry.ZeroRpm),
             Source = BaselineSource.Journal,
             Reason = "recovering a fan state left by an unclean stop (journal " + entry.Utc + ")",
         };
 
-        BaselineChoice Captured(string why) => new()
+        BaselineChoice Captured(BaselineChoiceKind kind, string why) => new()
         {
+            Kind = kind,
             Baseline = captured,
             Source = BaselineSource.Captured,
             Reason = why + "; using the captured state",
         };
+    }
+
+    /// <summary>
+    /// True when <paramref name="s"/> looks like a state this app wrote: one flat duty (within 1 point of read-back
+    /// noise) inside the 20..85 clamp (19..86 with that tolerance), with zero-RPM off.
+    /// </summary>
+    public static bool LooksAppWritten(FanBaseline s)
+    {
+        if (s.Speeds.Count == 0) return false;
+        int min = s.Speeds.Min(), max = s.Speeds.Max();
+        if (max - min > 1) return false;
+        if (min < 19 || max > 86) return false;
+        if (s.ZeroRpmSupported && s.ZeroRpm) return false;
+        return true;
     }
 }
 

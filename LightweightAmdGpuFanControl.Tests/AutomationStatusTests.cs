@@ -58,6 +58,17 @@ public class AutomationStatusTests
     }
 
     [Fact]
+    public void Unavailable_NoEnabledGpu_RoundTripsInJson()
+    {
+        Assert.Equal("no-enabled-gpu", StatusReasons.NoEnabledGpu);
+        var s = AutomationStatus.Unavailable(1, Started, Now, "1.1.0", StatusReasons.NoEnabledGpu);
+        Assert.Equal("unavailable", s.State);
+        Assert.False(s.IsEngaged);
+        Assert.Contains("\"reason\": \"no-enabled-gpu\"", s.ToJson());
+        Assert.Contains("\"state\": \"unavailable\"", s.ToJson());
+    }
+
+    [Fact]
     public void Stopped_ReasonExit()
     {
         var s = AutomationStatus.Stopped(1, Started, Now, "1.1.0");

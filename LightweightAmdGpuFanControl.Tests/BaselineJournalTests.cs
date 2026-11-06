@@ -6,7 +6,8 @@ public class BaselineJournalTests
     private static readonly DateTime T = new(2026, 11, 6, 18, 0, 0, DateTimeKind.Utc);
     private static GpuIdentity Id(string name = "GPU A", int uid = 1, int states = 5) => new(name, uid, states);
     private static FanBaseline Base(params int[] speeds) => new(speeds, true, false);
-    private static FanBaseline Captured() => new(new[] { 99, 98, 97, 96, 95 }, true, true);
+    // App-like captured state: one flat duty, zero-RPM supported but off.
+    private static FanBaseline Captured() => new(new[] { 60, 60, 60, 60, 60 }, true, false);
 
     private static BaselineEntry Dirty(GpuIdentity id, int[]? speeds = null, bool zeroSupported = true)
     {
@@ -21,7 +22,8 @@ public class BaselineJournalTests
         var c = BaselinePlanner.Choose(Id(), Captured(), null);
         Assert.Equal(BaselineSource.Captured, c.Source);
         Assert.False(string.IsNullOrWhiteSpace(c.Reason));
-        Assert.Equal(new[] { 99, 98, 97, 96, 95 }, c.Baseline.Speeds);
+        Assert.Equal(new[] { 60, 60, 60, 60, 60 }, c.Baseline.Speeds);
+        Assert.Equal(BaselineChoiceKind.NoEntry, c.Kind);
     }
 
     [Fact]
@@ -31,6 +33,7 @@ public class BaselineJournalTests
         e.Dirty = false;
         var c = BaselinePlanner.Choose(Id(), Captured(), e);
         Assert.Equal(BaselineSource.Captured, c.Source);
+        Assert.Equal(BaselineChoiceKind.Clean, c.Kind);
         Assert.False(string.IsNullOrWhiteSpace(c.Reason));
     }
 
@@ -40,6 +43,7 @@ public class BaselineJournalTests
         var e = Dirty(Id());
         var c = BaselinePlanner.Choose(Id(), Captured(), e);
         Assert.Equal(BaselineSource.Journal, c.Source);
+        Assert.Equal(BaselineChoiceKind.Journal, c.Kind);
         Assert.Equal(new[] { 20, 30, 40, 50, 60 }, c.Baseline.Speeds);
         Assert.True(c.Baseline.ZeroRpmSupported);
         Assert.True(c.Baseline.ZeroRpm);
@@ -164,6 +168,102 @@ public class BaselineJournalTests
         Assert.Equal(2, removed.Count);
         Assert.Single(j.Entries);
         Assert.NotNull(j.Find(Id(uid: 1)));
+    }
+
+    [Fact]
+    public void Choose_CapturedNotFlat_Stale()
+    {
+        var c = BaselinePlanner.Choose(Id(), new FanBaseline(new[] { 25, 35, 50, 70, 90 }, true, false), Dirty(Id()));
+        Assert.Equal(BaselineChoiceKind.Stale, c.Kind);
+        Assert.Equal(BaselineSource.Captured, c.Source);
+        Assert.False(string.IsNullOrWhiteSpace(c.Reason));
+    }
+
+    [Fact]
+    public void Choose_CapturedZeroRpmOn_Stale()
+    {
+        var c = BaselinePlanner.Choose(Id(), new FanBaseline(new[] { 60, 60, 60, 60, 60 }, true, true), Dirty(Id()));
+        Assert.Equal(BaselineChoiceKind.Stale, c.Kind);
+        Assert.Equal(BaselineSource.Captured, c.Source);
+    }
+
+    [Fact]
+    public void Choose_CapturedAboveCeiling_Stale()
+    {
+        var c = BaselinePlanner.Choose(Id(), new FanBaseline(new[] { 100, 100, 100, 100, 100 }, true, false), Dirty(Id()));
+        Assert.Equal(BaselineChoiceKind.Stale, c.Kind);
+        Assert.Equal(BaselineSource.Captured, c.Source);
+    }
+
+    [Fact]
+    public void Choose_CapturedEqualsEntry_AlreadyRestored()
+    {
+        var e = Dirty(Id(), new[] { 20, 30, 40, 50, 60 });
+        var captured = new FanBaseline(new[] { 20, 30, 40, 50, 60 }, true, true);
+        var c = BaselinePlanner.Choose(Id(), captured, e);
+        Assert.Equal(BaselineChoiceKind.AlreadyRestored, c.Kind);
+        Assert.Equal(BaselineSource.Captured, c.Source);
+        Assert.Contains("already equals the journaled pre-app state", c.Reason);
+    }
+
+    [Fact]
+    public void Choose_FlatWithinTolerance_Journal()
+    {
+        var c = BaselinePlanner.Choose(Id(), new FanBaseline(new[] { 60, 60, 61, 60, 60 }, true, false), Dirty(Id()));
+        Assert.Equal(BaselineChoiceKind.Journal, c.Kind);
+        Assert.Equal(BaselineSource.Journal, c.Source);
+    }
+
+    [Fact]
+    public void Choose_InvalidEntry_KindInvalid()
+    {
+        var c = BaselinePlanner.Choose(Id(), Captured(), Dirty(Id(), new[] { 20, 30, 40, 50, 101 }));
+        Assert.Equal(BaselineChoiceKind.Invalid, c.Kind);
+        Assert.Equal(BaselineSource.Captured, c.Source);
+        Assert.Equal(BaselineChoiceKind.Invalid, BaselinePlanner.Choose(Id(uid: 1), Captured(), Dirty(Id(uid: 2))).Kind);
+        Assert.Equal(BaselineChoiceKind.Invalid, BaselinePlanner.Choose(Id(), Captured(), Dirty(Id(), zeroSupported: false)).Kind);
+    }
+
+    [Fact]
+    public void LooksAppWritten_Cases()
+    {
+        Assert.True(BaselinePlanner.LooksAppWritten(new FanBaseline(new[] { 20, 20, 20, 20, 20 }, true, false)));
+        Assert.True(BaselinePlanner.LooksAppWritten(new FanBaseline(new[] { 85, 86, 85 }, false, false)));
+        Assert.True(BaselinePlanner.LooksAppWritten(new FanBaseline(new[] { 19, 20 }, true, false)));
+        Assert.True(BaselinePlanner.LooksAppWritten(new FanBaseline(new[] { 60, 60 }, false, true))); // zero-RPM flag ignored when unsupported
+        Assert.False(BaselinePlanner.LooksAppWritten(new FanBaseline(Array.Empty<int>(), true, false)));
+        Assert.False(BaselinePlanner.LooksAppWritten(new FanBaseline(new[] { 60, 62 }, true, false)));
+        Assert.False(BaselinePlanner.LooksAppWritten(new FanBaseline(new[] { 18, 18 }, true, false)));
+        Assert.False(BaselinePlanner.LooksAppWritten(new FanBaseline(new[] { 87, 87 }, true, false)));
+        Assert.False(BaselinePlanner.LooksAppWritten(new FanBaseline(new[] { 60, 60 }, true, true)));
+    }
+
+    [Fact]
+    public void Prune_EmptyPresent_RemovesNothing()
+    {
+        var j = new BaselineJournal();
+        j.MarkDirty(Id(uid: 1), Base(1, 2, 3, 4, 5), T);
+        j.MarkDirty(Id(uid: 2), Base(1, 2, 3, 4, 5), T);
+        j.MarkClean(Id(uid: 2));
+        Assert.Empty(j.PruneAbsent(Array.Empty<GpuIdentity>()));
+        Assert.Empty(j.PruneAbsent(Array.Empty<GpuIdentity>(), includeDirty: false));
+        Assert.Equal(2, j.Entries.Count);
+    }
+
+    [Fact]
+    public void Prune_ExcludeDirty_KeepsAbsentDirty()
+    {
+        var j = new BaselineJournal();
+        j.MarkDirty(Id(uid: 1), Base(1, 2, 3, 4, 5), T);
+        j.MarkDirty(Id(uid: 2), Base(1, 2, 3, 4, 5), T);
+        j.MarkDirty(Id(uid: 3), Base(1, 2, 3, 4, 5), T);
+        j.MarkClean(Id(uid: 3));
+        var removed = j.PruneAbsent(new[] { Id(uid: 1) }, includeDirty: false);
+        Assert.Single(removed);
+        Assert.Equal("GPU A|3", removed[0].Key);
+        Assert.NotNull(j.Find(Id(uid: 1)));
+        Assert.NotNull(j.Find(Id(uid: 2))); // absent but dirty: kept
+        Assert.Null(j.Find(Id(uid: 3)));
     }
 
     [Fact]

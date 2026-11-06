@@ -17,8 +17,12 @@ public sealed class AdlxInitializer : IDisposable
     /// Initialize ADLX. Call before using GpuMonitor or FanController.
     /// </summary>
     /// <returns>True if successful.</returns>
-    public bool Initialize()
+    public bool Initialize() => Initialize(out _);
+
+    /// <param name="error">Null on success; otherwise the exception type and message.</param>
+    public bool Initialize(out string? error)
     {
+        error = null;
         if (_wrapper != null)
             return true;
 
@@ -27,9 +31,10 @@ public sealed class AdlxInitializer : IDisposable
             _wrapper = new AdlxSdk();
             return true;
         }
-        catch (Exception)
+        catch (Exception ex)
         {
             _wrapper = null;
+            error = $"{ex.GetType().Name}: {ex.Message}";
             return false;
         }
     }

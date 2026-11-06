@@ -54,20 +54,31 @@ public sealed class FanController
         gpu ??= _systemServices.GetGPUs().FirstOrDefault();
         if (gpu == null) return false;
 
+        return Initialize(gpu, out _);
+    }
+
+    /// <summary>As <see cref="Initialize(GPU?)"/>, reporting why a GPU was not usable.</summary>
+    public bool Initialize(GPU gpu, out string? reason)
+    {
+        reason = null;
         try
         {
             _tuningService ??= _systemServices.GetGPUTuningService();
             if (!_tuningService.IsManualFanTuningSupported(gpu))
+            {
+                reason = "manual fan tuning not supported";
                 return false;
+            }
 
             _manualFanTuning = _tuningService.GetManualFanTuning(gpu);
             _gpu = gpu;
             return _manualFanTuning != null;
         }
-        catch
+        catch (Exception ex)
         {
             _manualFanTuning = null;
             _gpu = null;
+            reason = $"{ex.GetType().Name}: {ex.Message}";
             return false;
         }
     }

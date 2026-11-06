@@ -71,6 +71,8 @@ public class FanControlService
         _notifyIcon = notifyIcon;
         BoundAdlPreloader.Run(_logService);
         _channelSet = FanControlBackendFactory.CreateAll(_logService);
+        LogLoadedModule("atiadlxx.dll");
+        LogLoadedModule("amdadlx64.dll");
 
         if (_channelSet == null || !_channelSet.HasChannels)
         {
@@ -95,6 +97,20 @@ public class FanControlService
         System.Threading.Tasks.Task.Run(RunStartupTests);
 
         _timer = new System.Threading.Timer(_ => PollAndAdjust(), null, 1000, NormalPollIntervalMs);
+    }
+
+    private void LogLoadedModule(string name)
+    {
+        try
+        {
+            var path = Win32.ModulePath(name);
+            var version = path != null ? Win32.BinaryVersion(path) : null;
+            _logService.Log($"module {name}: {path ?? "not loaded"} {version ?? ""}".TrimEnd());
+        }
+        catch
+        {
+            // diagnostics only
+        }
     }
 
     /// <summary>Reconcile detected GPUs into settings so the UI has entries to toggle.</summary>

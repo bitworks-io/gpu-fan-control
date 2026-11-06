@@ -36,8 +36,9 @@ public sealed class AdlxSession : IDisposable
     public static AdlxSession? TryCreate(LogService logService)
     {
         var initializer = new AdlxInitializer();
-        if (!initializer.Initialize())
+        if (!initializer.Initialize(out var initError))
         {
+            logService.Log($"ADLX init failed: {initError}");
             initializer.Dispose();
             return null;
         }

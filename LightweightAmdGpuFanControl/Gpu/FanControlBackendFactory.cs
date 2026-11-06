@@ -38,6 +38,7 @@ public static class FanControlBackendFactory
 
         var channels = new List<IFanControlBackend>();
         int count = session.GpuCount;
+        logService.Log($"ADLX: {count} GPU(s)");
         for (int i = 0; i < count; i++)
         {
             var channel = AdlxFanControlBackend.TryCreateChannel(session, i, logService);

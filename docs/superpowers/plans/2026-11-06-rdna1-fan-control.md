@@ -343,6 +343,18 @@ Each experiment below is a template. The lead fills in the bench, card and build
 - **A restore journal for the ADL backends:** not needed; they restore to the driver's automatic mode (Phase E, item 9).
 - **Possible later cleanup:** removing the CustomFan branch for Overdrive version 7 (older cards). This needs its own validation.
 - **Downstream automation changes:** passing `--automation`, reading `status.json` for engagement, and running `--restore-auto` after a kill. These belong to the downstream owner, not this repo.
+- **1.1.1: graceful stop on upgrade** (agreed at merge review, 2026-11-06).
+  - **What:** `PrepareToInstall` in `installer/LightweightAmdGpuFanControl.iss` still force-closes a running instance with `taskkill /F`.
+    - When the installed exe's FileVersion is ≥ 1.1.0, run `--stop` first and wait for it.
+    - Keep `taskkill /F` as the fallback, then relaunch as today. This mirrors uninstall (§3 Phase E item 8).
+    - An ADL-only (pre-RDNA) card is then restored on upgrade too.
+  - **Why it waits for 1.1.1:**
+    - The step runs the *installed* exe, so it cannot help the v1.0 → 1.1.0 upgrade.
+    - ADLX machines already recover through the journal when the relaunched app starts.
+    - rc → final upgrades do not happen through the downstream installer, because rc and final share FileVersion 1.1.0.0.
+  - **Proof:**
+    - CI compiles the script.
+    - A real upgrade from an installed ≥ 1.1.0 must show `stop: stopped` in the log before the new files are copied.
 
 ## 8. Implementation plan
 

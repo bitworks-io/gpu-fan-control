@@ -16,8 +16,10 @@ internal static class RestoreAutoRunner
     public static int Run(LogService log)
     {
         Mutex? mutex = null;
+        IDisposable? oneShot = null;
         try
         {
+            oneShot = SingleInstance.MarkOneShot();
             if (!SingleInstance.TryAcquire(out mutex, 15000) /* a process killed inside a driver call can take a while to die */)
             {
                 log.Log("restore-auto: the app is running; not restoring");
@@ -41,6 +43,7 @@ internal static class RestoreAutoRunner
         finally
         {
             SingleInstance.Release(mutex);
+            oneShot?.Dispose();
         }
     }
 

@@ -318,6 +318,9 @@ public sealed class SystrayApplicationContext : ApplicationContext
     /// </summary>
     private void ExitWithCode(int code)
     {
+        // Shares Exit()'s guard: whichever exit runs first decides the teardown, the status and the code.
+        if (Interlocked.Exchange(ref _exiting, 1) != 0)
+            return;
         ExitCode = code;
         try { _stopListener?.Dispose(); } catch { }
         _tooltipTimer.Stop();
@@ -336,11 +339,16 @@ public sealed class SystrayApplicationContext : ApplicationContext
     /// </summary>
     private void ShutdownForExternalClose()
     {
-        try { _stopListener?.Dispose(); } catch { }
-        try { _tooltipTimer.Stop(); } catch { }
-        try { _fanControlService.Stop(); } catch { } // restores every GPU to auto + tears down the session
-        try { _status?.Stopped(); } catch { }
-        try { _notifyIcon.Visible = false; _notifyIcon.Dispose(); } catch { }
-        Environment.Exit(0);
+        // If another exit already started, skip the duplicate teardown but still force the process out:
+        // the ProcessExit handler's RestoreAll waits on the control lock, so an in-flight restore completes.
+        if (Interlocked.Exchange(ref _exiting, 1) == 0)
+        {
+            try { _stopListener?.Dispose(); } catch { }
+            try { _tooltipTimer.Stop(); } catch { }
+            try { _fanControlService.Stop(); } catch { } // restores every GPU to auto + tears down the session
+            try { _status?.Stopped(); } catch { }
+            try { _notifyIcon.Visible = false; _notifyIcon.Dispose(); } catch { }
+        }
+        Environment.Exit(ExitCode ?? 0);
     }
 }

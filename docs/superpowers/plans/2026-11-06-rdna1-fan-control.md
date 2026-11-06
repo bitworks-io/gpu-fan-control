@@ -177,7 +177,15 @@ This lets the journal use only public wrapper members: `GetCurrentState()`, `Get
 9. **Scope:** ADLX only.
    - The ADL backends (Overdrive5 and OverdriveN, pre-RDNA) restore by setting the driver's automatic mode, which holds no captured state. A fresh instance's restore already returns them to automatic.
    - `--restore-auto` does not touch ADL adapters.
-10. **Downstream automation** (coordinated separately, not this repo): after stopping the app, run `--restore-auto` and wait up to 15 s.
+10. **Downstream automation** (coordinated separately, not this repo): run `--stop` first. Kill only if `--stop` times out, then run `--restore-auto` and wait up to 15 s. Check FileVersion ≥ 1.1.0 before passing any new flag except `--automation`.
+11. **Single-instance mutex and one-shot runs.**
+    - `--probe` and `--restore-auto` advertise themselves with a named marker (`Local\LightweightAmdGpuFanControl.OneShot`) while they run.
+    - A tray start, including the no-argument login launch, that finds the mutex held while that marker exists waits up to 30 s for the one-shot run to finish, instead of reporting "already running".
+    - Interactive starts are otherwise instant, as in v1.0. `--automation` waits up to 15 s.
+12. **Known limitations** (accepted at review):
+    - **Flat user curve after a kill:** a user who, after a kill and before the next start, sets a flat curve between 20 and 85 % with zero-RPM off in AMD Software cannot be told apart from the app's own state. The journaled pre-app curve is then restored over it on the next exit.
+    - **Hung app at uninstall:** if the app is hung, `--stop` times out and the uninstaller falls back to `taskkill`. An ADL (pre-RDNA) card then stays at its last manual duty until the driver resets. `--restore-auto` still covers ADLX.
+    - **Failed restore at uninstall:** `[UninstallDelete]` removes `baseline.json` even if `--restore-auto` failed during uninstall. The log for that run is removed with it.
 
 The fuller fix, restoring ADLX **driver defaults** through `IADLXManualFanTuning1::GetDefault*` (ADLX 1.4), needs binding work in `external/ADLX`. It stays a later follow-up.
 

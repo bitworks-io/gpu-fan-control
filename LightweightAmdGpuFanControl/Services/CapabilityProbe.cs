@@ -26,8 +26,10 @@ internal static class CapabilityProbe
     public static int Run(LogService log, LaunchOptions options)
     {
         System.Threading.Mutex? mutex = null;
+        IDisposable? oneShot = null;
         try
         {
+            oneShot = SingleInstance.MarkOneShot();
             if (!SingleInstance.TryAcquire(out mutex, 0))
             {
                 log.Log("probe: another instance is running; exiting");
@@ -64,6 +66,7 @@ internal static class CapabilityProbe
         finally
         {
             SingleInstance.Release(mutex);
+            oneShot?.Dispose();
         }
     }
 

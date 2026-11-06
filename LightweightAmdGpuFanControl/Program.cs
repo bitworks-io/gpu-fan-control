@@ -36,7 +36,7 @@ static class Program
             return StopCommand.Run(log);
 
         // Automation waits for a previous instance to finish exiting; interactive stays instant, as in v1.0.
-        if (!SingleInstance.TryAcquire(out _instanceMutex, options.Automation ? 15000 : 0))
+        if (!SingleInstance.TryAcquireForTray(out _instanceMutex, options.Automation))
         {
             if (options.Automation)
             {

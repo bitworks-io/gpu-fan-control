@@ -35,6 +35,48 @@ internal static class SingleInstance
         return true;
     }
 
+    private const string OneShotMarkerName = "Local\\LightweightAmdGpuFanControl.OneShot";
+    private const int TrayWaitBehindOneShotMs = 30000;
+
+    /// <summary>
+    /// Advertises a short one-shot run (--probe, --restore-auto, --stop) for its lifetime, so a tray start
+    /// that finds the mutex held waits for it instead of reporting "already running". Dispose to end the
+    /// marker. Never throws; returns null if the marker could not be created.
+    /// </summary>
+    public static IDisposable? MarkOneShot()
+    {
+        try { return new EventWaitHandle(false, EventResetMode.ManualReset, OneShotMarkerName); }
+        catch { return null; }
+    }
+
+    /// <summary>
+    /// Tray-mode acquire: interactive starts stay instant (as in v1.0) and automation waits up to 15 s, unless
+    /// a one-shot run holds the mutex, in which case the tray start waits up to 30 s for it to finish.
+    /// </summary>
+    public static bool TryAcquireForTray(out Mutex? mutex, bool automation)
+    {
+        if (TryAcquire(out mutex, automation ? 15000 : 0))
+            return true;
+        if (!OneShotActive())
+            return false;
+        return TryAcquire(out mutex, TrayWaitBehindOneShotMs);
+    }
+
+    private static bool OneShotActive()
+    {
+        try
+        {
+            if (!EventWaitHandle.TryOpenExisting(OneShotMarkerName, out var marker))
+                return false;
+            marker.Dispose();
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     /// <summary>Releases and disposes the mutex. Never throws.</summary>
     public static void Release(Mutex? mutex)
     {

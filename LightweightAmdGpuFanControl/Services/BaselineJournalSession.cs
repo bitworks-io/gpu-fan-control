@@ -128,8 +128,10 @@ internal sealed class BaselineJournalSession
         {
             try
             {
+                // Skip the disk flush only when no entry stays dirty: then a torn write after power loss can
+                // only lose "clean" entries. While another GPU's entry is dirty, flush so it cannot be lost.
                 if (_journal.MarkClean(id))
-                    Save("mark clean", flushToDisk: false); // losing a "clean" is harmless; exit handlers are time-limited
+                    Save("mark clean", flushToDisk: _journal.HasDirty);
             }
             catch (Exception ex) { Log(_log, $"journal mark-clean failed for '{id.Name}': {ex.GetType().Name}: {ex.Message}"); }
         }

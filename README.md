@@ -156,6 +156,8 @@ then exit `3`; `engaged` when the self-test passes on at least one channel;
 `stopped` with `exit` on a graceful exit. When another instance is running the app
 exits `4` and leaves `status.json` untouched. `--automation` waits up to 15 s for the
 single-instance mutex before exiting `4`, so a just-stopped instance can finish exiting.
+Any tray start, including the login launch, waits up to 30 s instead of reporting "already
+running" while a `--probe` or `--restore-auto` run holds the mutex.
 Once `stopped` or `unavailable` is written, later writes are ignored.
 
 **Readers must key off `state` and `engaged`, not `reason`.** `reason` is explanatory text

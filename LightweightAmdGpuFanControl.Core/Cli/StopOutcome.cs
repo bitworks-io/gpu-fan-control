@@ -4,13 +4,17 @@ namespace LightweightAmdGpuFanControl.Cli;
 public static class StopOutcome
 {
     /// <summary>
-    /// No stop event and the instance mutex free: not running (3). No event but the mutex held: a running
-    /// instance without a stop listener (1). Event present: 0 if the app exited in time, else 1.
+    /// Nothing holds the instance mutex: not running (3), even if a stop event exists — a same-named event
+    /// without a running instance is never reported as "stopped". Running without a stop event: an older
+    /// build with no listener (1). Running and signalled: 0 if it exited in time, else 1 (forcing the exit is
+    /// the caller's decision).
     /// </summary>
-    public static int ExitCode(bool eventExisted, bool mutexFreeWhenNoEvent, bool exitedInTime)
+    public static int ExitCode(bool instanceRunning, bool eventExisted, bool exitedInTime)
     {
+        if (!instanceRunning)
+            return ExitCodes.NothingToDo;
         if (!eventExisted)
-            return mutexFreeWhenNoEvent ? ExitCodes.NothingToDo : ExitCodes.Error;
+            return ExitCodes.Error;
         return exitedInTime ? ExitCodes.Ok : ExitCodes.Error;
     }
 }

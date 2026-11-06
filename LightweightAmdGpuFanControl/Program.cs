@@ -32,7 +32,11 @@ static class Program
         if (options.Mode == LaunchMode.RestoreAuto)
             return RestoreAutoRunner.Run(log);
 
-        if (!SingleInstance.TryAcquire(out _instanceMutex, 0))
+        if (options.Mode == LaunchMode.Stop)
+            return StopCommand.Run(log);
+
+        // Automation waits for a previous instance to finish exiting; interactive stays instant, as in v1.0.
+        if (!SingleInstance.TryAcquire(out _instanceMutex, options.Automation ? 15000 : 0))
         {
             if (options.Automation)
             {

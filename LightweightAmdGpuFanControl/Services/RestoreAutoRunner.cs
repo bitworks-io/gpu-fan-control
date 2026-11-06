@@ -18,7 +18,7 @@ internal static class RestoreAutoRunner
         Mutex? mutex = null;
         try
         {
-            if (!SingleInstance.TryAcquire(out mutex, 3000))
+            if (!SingleInstance.TryAcquire(out mutex, 15000) /* a process killed inside a driver call can take a while to die */)
             {
                 log.Log("restore-auto: the app is running; not restoring");
                 return ExitCodes.AlreadyRunning;
@@ -85,7 +85,7 @@ internal static class RestoreAutoRunner
                     failed++;
                     log.Log($"restore-auto: '{name}' baseline unavailable; leaving its journal entry");
                 }
-                else if (fc.BaselineSource == BaselineSource.Journal)
+                else if (fc.ChoiceKind == BaselineChoiceKind.Journal)
                 {
                     if (fc.TryRestoreAutomatic())
                     {
@@ -94,19 +94,26 @@ internal static class RestoreAutoRunner
                     }
                     else
                     {
+                        // The entry stays dirty so a later run can retry.
                         failed++;
                         log.Log($"restore-auto: restoring '{name}' failed");
                     }
                 }
+                else if (fc.ChoiceKind == BaselineChoiceKind.AlreadyRestored || fc.ChoiceKind == BaselineChoiceKind.Stale)
+                {
+                    // The fan no longer carries the killed run's curve: nothing to restore, so the entry can go clean.
+                    journal.MarkClean(fc.Identity);
+                    log.Log($"restore-auto: '{name}' journal {fc.ChoiceKind}; nothing to restore, entry cleared");
+                }
                 else
                 {
-                    // Dirty entry present but not usable (invalid or mismatched; Choose logged why).
-                    journal.MarkClean(fc.Identity);
-                    log.Log($"restore-auto: discarded unusable journal entry for '{name}'");
+                    // Invalid: the entry cannot be trusted, and the fan may still carry the killed run's curve.
+                    failed++;
+                    log.Log($"restore-auto: '{name}' journal {fc.ChoiceKind}; entry left dirty, fan state unverified");
                 }
             }
 
-            journal.PruneAbsent(present);
+            journal.PruneAbsent(present, includeDirty: true);
             return RestoreAutoResult.ExitCode(restored, failed);
         }
         finally

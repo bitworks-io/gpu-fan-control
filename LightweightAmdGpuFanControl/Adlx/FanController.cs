@@ -30,6 +30,7 @@ public sealed class FanController
     private GpuIdentity? _identity;
     private FanBaseline? _baseline;
     private BaselineSource _source = BaselineSource.Captured;
+    private BaselineChoiceKind _choiceKind = BaselineChoiceKind.NoEntry;
     private bool _journalDirty;
 
     /// <summary>Identity of the initialized GPU; null before a successful Initialize or if capture failed.</summary>
@@ -37,6 +38,9 @@ public sealed class FanController
 
     /// <summary>Whether restore targets a recovered journal baseline or the wrapper's captured state (v1.0).</summary>
     public BaselineSource BaselineSource => _source;
+
+    /// <summary>How the restore baseline was chosen; <c>NoEntry</c> when there is no journal.</summary>
+    public BaselineChoiceKind ChoiceKind => _choiceKind;
 
     public FanController(SystemServices systemServices, LogService? log = null)
     {
@@ -108,6 +112,7 @@ public sealed class FanController
                 _log?.Log($"[fan] journal disabled for '{gpu.Name}': {ex.GetType().Name}: {ex.Message}");
                 _journal = null;
                 _source = BaselineSource.Captured;
+                _choiceKind = BaselineChoiceKind.NoEntry;
                 _baseline = null;
                 _identity = null;
                 _journalDirty = false;
@@ -136,6 +141,7 @@ public sealed class FanController
             _identity = identity;
             _baseline = captured;
             _source = BaselineSource.Captured;
+            _choiceKind = BaselineChoiceKind.NoEntry;
             _journal = null;
             _journalDirty = false;
             return;
@@ -145,6 +151,7 @@ public sealed class FanController
         _identity = identity;
         _baseline = choice.Baseline;
         _source = choice.Source;
+        _choiceKind = choice.Kind;
         _journal = journal;
         // A recovered entry is already dirty on disk.
         _journalDirty = choice.Source == BaselineSource.Journal;
@@ -152,20 +159,31 @@ public sealed class FanController
 
     /// <summary>
     /// Releases manual control. With a recovered journal baseline: zero-RPM first, then the journaled
-    /// speeds (the same order as <c>Reset</c>). Otherwise exactly the v1.0 <c>Reset</c>.
+    /// speeds (the same order as <c>Reset</c>); if the driver rejects that, falls back to <c>Reset</c> and
+    /// returns false (the journaled state was NOT applied exactly). Otherwise exactly the v1.0 <c>Reset</c>,
+    /// returning true. A <c>Reset</c> exception propagates.
     /// </summary>
-    private void ApplyBaseline()
+    private bool ApplyBaseline()
     {
         if (_source == BaselineSource.Journal && _baseline != null)
         {
-            if (_manualFanTuning!.SupportsZeroRPM)
-                _manualFanTuning.SetZeroRPM(_baseline.ZeroRpm);
-            _manualFanTuning.SetFanTuningStates(_baseline.Speeds.ToArray());
+            try
+            {
+                if (_manualFanTuning!.SupportsZeroRPM)
+                    _manualFanTuning.SetZeroRPM(_baseline.ZeroRpm);
+                _manualFanTuning.SetFanTuningStates(_baseline.Speeds.ToArray());
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _log?.Log($"[fan] journal restore rejected ({ex.GetType().Name}: {ex.Message}); falling back to Reset");
+                _manualFanTuning!.Reset();
+                return false;
+            }
         }
-        else
-        {
-            _manualFanTuning!.Reset();
-        }
+
+        _manualFanTuning!.Reset();
+        return true;
     }
 
     /// <summary>Records the pre-app baseline as dirty before the first write of this run. Never throws.</summary>
@@ -283,21 +301,22 @@ public sealed class FanController
 
     /// <summary>
     /// As <see cref="RestoreAutomatic"/>, reporting success. The journal entry is marked clean only
-    /// after the restore was applied without error. Never throws.
+    /// after the restore was applied exactly (a journal restore that fell back to <c>Reset</c> returns
+    /// false and leaves the entry dirty). Never throws.
     /// </summary>
     public bool TryRestoreAutomatic()
     {
         if (_manualFanTuning == null) return false;
         try
         {
-            ApplyBaseline();
+            bool exact = ApplyBaseline();
             _lastAppliedPercent = -1; // control released; the next Set starts a fresh latch
-            if (_journalDirty && _journal != null && _identity != null)
+            if (exact && _journalDirty && _journal != null && _identity != null)
             {
                 _journal.MarkClean(_identity);
                 _journalDirty = false;
             }
-            return true;
+            return exact;
         }
         catch
         {

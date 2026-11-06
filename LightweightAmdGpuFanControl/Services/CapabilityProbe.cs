@@ -96,45 +96,11 @@ internal static class CapabilityProbe
     /// </summary>
     internal static void ReadModules(ProbeReport report)
     {
-        try
+        foreach (var module in LoadedAmdModules.Snapshot())
         {
-            string? boundFolder = null;
-            var boundPath = BoundAdlPreloader.LastFacts?.AtiadlxxPath;
-            if (boundPath != null)
-            {
-                int slash = boundPath.LastIndexOf('\\');
-                if (slash > 0) boundFolder = boundPath.Substring(0, slash);
-            }
-
-            foreach (ProcessModule m in Process.GetCurrentProcess().Modules)
-            {
-                string name = m.ModuleName ?? "";
-                if (!name.StartsWith("ati", StringComparison.OrdinalIgnoreCase)
-                    && !name.StartsWith("amd", StringComparison.OrdinalIgnoreCase))
-                    continue;
-
-                string path = m.FileName ?? "";
-                if (report.Modules.Any(x => string.Equals(x.Path, path, StringComparison.OrdinalIgnoreCase)))
-                    continue;
-                string? version = Win32.BinaryVersion(path);
-                var module = new ProbeModule { Name = name, Path = path, Version = version };
-
-                if (boundFolder != null && !path.StartsWith(boundFolder + "\\", StringComparison.OrdinalIgnoreCase))
-                {
-                    string boundFile = boundFolder + "\\" + name;
-                    if (File.Exists(boundFile))
-                    {
-                        string? boundVersion = Win32.BinaryVersion(boundFile);
-                        module.MixedLine = !string.Equals(boundVersion, version, StringComparison.Ordinal);
-                    }
-                }
-
-                report.Modules.Add(module);
-            }
-        }
-        catch (Exception ex)
-        {
-            report.Modules.Add(new ProbeModule { Name = "(module enumeration failed)", Path = ex.GetType().Name + ": " + ex.Message });
+            if (report.Modules.Any(x => string.Equals(x.Path, module.Path, StringComparison.OrdinalIgnoreCase)))
+                continue;
+            report.Modules.Add(module);
         }
     }
 }

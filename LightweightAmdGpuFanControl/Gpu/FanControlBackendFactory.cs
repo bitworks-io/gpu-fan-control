@@ -69,7 +69,7 @@ public static class FanControlBackendFactory
             var present = session.Monitor.GetAllGpus()
                 .Select(g => new GpuIdentity(g.Name ?? "", g.UniqueId, 0))
                 .ToList();
-            journal.PruneAbsent(present);
+            journal.PruneAbsent(present, includeDirty: false); // the tray path never drops a dirty entry
         }
         catch (Exception ex)
         {

@@ -22,6 +22,8 @@ public sealed class SystrayApplicationContext : ApplicationContext
     private readonly AutomationStatusWriter? _status;
     private readonly SynchronizationContext _uiContext;
     private PreferencesForm? _preferencesForm;
+    private IDisposable? _stopListener;
+    private int _exiting;
 
     /// <summary>Set when the process should exit with this code (automation runs only); null for a normal tray run.</summary>
     public int? ExitCode { get; private set; }
@@ -57,17 +59,17 @@ public sealed class SystrayApplicationContext : ApplicationContext
 
         if (_status != null)
         {
-            _fanControlService.StartupTestsCompleted += (anyPassed, passed) =>
+            _fanControlService.StartupTestsCompleted += outcome =>
             {
-                if (anyPassed)
+                if (outcome.PassedEnabled.Count > 0)
                 {
-                    _status.Engaged(passed);
+                    _status.Engaged(outcome.PassedEnabled);
+                    return;
                 }
-                else
-                {
-                    _status.Unavailable(StatusReasons.SelfTestFailed);
-                    _uiContext.Post(_ => ExitWithCode(ExitCodes.NothingToDo), null);
-                }
+
+                // Nothing is being controlled: either every test failed, or the passing GPUs are all disabled.
+                _status.Unavailable(outcome.AnyPassed ? StatusReasons.NoEnabledGpu : StatusReasons.SelfTestFailed);
+                _uiContext.Post(_ => ExitWithCode(ExitCodes.NothingToDo), null);
             };
         }
 
@@ -82,6 +84,9 @@ public sealed class SystrayApplicationContext : ApplicationContext
             _notifyIcon.Dispose();
             return;
         }
+
+        // Graceful --stop (installer/uninstaller): exit through the normal path, which restores every backend.
+        _stopListener = StopSignal.Listen(() => _uiContext.Post(_ => Exit(), null), _logService);
 
         // Best-effort restore of automatic fan control on any exit path, including crashes and
         // logoff/shutdown. A hard kill (Task Manager / power loss) cannot run these; control is
@@ -294,6 +299,10 @@ public sealed class SystrayApplicationContext : ApplicationContext
 
     private void Exit()
     {
+        // Idempotent: a --stop racing the menu Exit runs the teardown once.
+        if (Interlocked.Exchange(ref _exiting, 1) != 0)
+            return;
+        try { _stopListener?.Dispose(); } catch { }
         _tooltipTimer.Stop();
         _tooltipTimer.Dispose();
         _fanControlService.Stop();
@@ -310,6 +319,7 @@ public sealed class SystrayApplicationContext : ApplicationContext
     private void ExitWithCode(int code)
     {
         ExitCode = code;
+        try { _stopListener?.Dispose(); } catch { }
         _tooltipTimer.Stop();
         _tooltipTimer.Dispose();
         _fanControlService.Stop();
@@ -326,6 +336,7 @@ public sealed class SystrayApplicationContext : ApplicationContext
     /// </summary>
     private void ShutdownForExternalClose()
     {
+        try { _stopListener?.Dispose(); } catch { }
         try { _tooltipTimer.Stop(); } catch { }
         try { _fanControlService.Stop(); } catch { } // restores every GPU to auto + tears down the session
         try { _status?.Stopped(); } catch { }

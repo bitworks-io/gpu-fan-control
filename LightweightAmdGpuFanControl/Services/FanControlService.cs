@@ -8,6 +8,13 @@ using LightweightAmdGpuFanControl.Models;
 
 namespace LightweightAmdGpuFanControl.Services;
 
+/// <summary>Result of the startup self-tests: whether any channel passed, and which passing channels are enabled in settings.</summary>
+public sealed class StartupOutcome
+{
+    public bool AnyPassed { get; init; }
+    public IReadOnlyList<StatusGpu> PassedEnabled { get; init; } = Array.Empty<StatusGpu>();
+}
+
 /// <summary>
 /// Polls each enabled GPU's temperature and applies the <see cref="FanControlPolicy"/> decision,
 /// and restores automatic fan control on shutdown, pause, or repeated sensor-read failure.
@@ -55,9 +62,9 @@ public class FanControlService
 
     /// <summary>
     /// Raised once the startup self-tests have finished (not when the service is disposed first), on a
-    /// background thread. Arguments: whether any channel passed, and one entry per passing channel.
+    /// background thread. Reports whether any channel passed and which passing channels are enabled.
     /// </summary>
-    public event Action<bool, IReadOnlyList<StatusGpu>>? StartupTestsCompleted;
+    public event Action<StartupOutcome>? StartupTestsCompleted;
 
     /// <summary>Live per-GPU snapshot for the UI. Empty until the first post-test poll.</summary>
     public IReadOnlyList<GpuStatus> LatestStatuses => _latestStatuses;
@@ -82,6 +89,7 @@ public class FanControlService
         BoundAdlPreloader.Run(_logService);
         var journal = BaselineJournalSession.Open(AppPaths.BaselinePath, _logService);
         _channelSet = FanControlBackendFactory.CreateAll(_logService, journal);
+        WarnOnMixedDriverLine();
         LogLoadedModule("atiadlxx.dll");
         LogLoadedModule("amdadlx64.dll");
 
@@ -113,6 +121,23 @@ public class FanControlService
         return true;
     }
 
+    // Logs only; control is never refused because of a mixed driver line.
+    private void WarnOnMixedDriverLine()
+    {
+        try
+        {
+            foreach (var m in LoadedAmdModules.Snapshot())
+            {
+                if (m.MixedLine)
+                    _logService.Log($"WARNING: mixed AMD driver line loaded: {m.Name} from {m.Path} (version {m.Version ?? "unknown"})");
+            }
+        }
+        catch
+        {
+            // diagnostics only
+        }
+    }
+
     private void LogLoadedModule(string name)
     {
         try
@@ -139,7 +164,6 @@ public class FanControlService
     private void RunStartupTests()
     {
         bool anyPassed = false;
-        var passed = new List<StatusGpu>();
         foreach (var channel in _channels)
         {
             if (_disposed) return;
@@ -152,11 +176,10 @@ public class FanControlService
             channel.TestPassed = ok;
             channel.TestCompleted = true;
             anyPassed |= ok;
-            if (ok)
-                passed.Add(new StatusGpu { Name = channel.Backend.AdapterName, Backend = channel.Backend.BackendName });
         }
 
         _testsComplete = true;
+        if (_disposed) return;
 
         if (!anyPassed)
         {
@@ -174,9 +197,27 @@ public class FanControlService
             }
         }
 
+        var passedEnabled = new List<StatusGpu>();
         try
         {
-            StartupTestsCompleted?.Invoke(anyPassed, passed);
+            var detectedIds = _channels.Select(c => c.Backend.GpuId).ToList();
+            var enabledIds = new HashSet<string>(GpuEnablement.Reconcile(detectedIds, _settingsService.Load())
+                .Where(g => g.Enabled)
+                .Select(g => g.GpuId));
+            foreach (var channel in _channels)
+            {
+                if (channel.TestPassed && enabledIds.Contains(channel.Backend.GpuId))
+                    passedEnabled.Add(new StatusGpu { Name = channel.Backend.AdapterName, Backend = channel.Backend.BackendName });
+            }
+        }
+        catch (Exception ex)
+        {
+            _logService.Log("Could not determine which passing GPUs are enabled.", ex);
+        }
+
+        try
+        {
+            StartupTestsCompleted?.Invoke(new StartupOutcome { AnyPassed = anyPassed, PassedEnabled = passedEnabled });
         }
         catch (Exception ex)
         {

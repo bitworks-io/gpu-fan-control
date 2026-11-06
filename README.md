@@ -117,9 +117,17 @@ Arguments are case-insensitive. Unknown arguments are logged and ignored.
 | `--automation [--status-file <fullpath>]` | Tray app with no modal dialogs; writes `status.json` | `0` graceful exit · `3` unavailable · `4` already running |
 | `--probe [--no-preload]` | Read-only capability report; no window, no fan writes | `0` controllable GPU · `3` none · `4` app running · `1` error |
 | `--restore-auto` | One-shot restore of the journaled pre-app fan state | `0` restored · `3` nothing to restore · `4` app running · `1` error |
+| `--stop` | Asks a running instance to exit gracefully (restores every backend) and waits up to 20 s; never kills | `0` stopped · `3` not running · `1` timeout or older running build |
 
-Exit `2` is a usage error (no UI): `--probe` with `--restore-auto`, or `--no-preload`
-without `--probe`. `--automation` combined with `--probe` or `--restore-auto` is accepted.
+`--probe` exits `0` only when ADLX manual fan tuning is supported; ADL adapters are
+reported but not counted.
+
+**Callers: check the version first.** Check that the exe's FileVersion is 1.1.0 or newer
+before passing `--stop`, `--restore-auto` or `--probe`. An older build ignores unknown
+arguments and starts the tray app, including its "already running" dialog.
+
+Exit `2` is a usage error (no UI): any two of `--probe`, `--restore-auto` and `--stop`, or
+`--no-preload` without `--probe`. `--automation` combined with `--probe` or `--restore-auto` is accepted.
 
 Files are written to `%LOCALAPPDATA%\Bitworks\LightweightAmdGpuFanControl`:
 `log.txt`, `probe-<yyyyMMddTHHmmssZ>.txt` (`--probe`), `status.json` (`--automation`)
@@ -134,7 +142,7 @@ Written atomically, camelCase, schema `1`; readers must ignore unknown fields.
 | `schema` | `1` |
 | `state` | `starting`, `engaged`, `unavailable` or `stopped` |
 | `engaged` | `true` only when `state` is `engaged` |
-| `reason` | `null`, `no-backend`, `self-test-failed` or `exit` |
+| `reason` | `null`, `no-backend`, `self-test-failed`, `no-enabled-gpu` or `exit` |
 | `gpu`, `backend` | First GPU that passed the start-up self-test (`null` unless engaged) |
 | `gpus` | Every GPU that passed, as `{ "name", "backend" }` |
 | `pid`, `startedUtc` | The writing process |
@@ -143,9 +151,15 @@ Written atomically, camelCase, schema `1`; readers must ignore unknown fields.
 
 Sequence: `starting` once the single-instance mutex is held; `unavailable` with
 `no-backend` (no backend initialised) or `self-test-failed` (self-test failed on every
-channel), then exit `3`; `engaged` when the self-test passes on at least one channel;
+channel) or `no-enabled-gpu` (a GPU passed but every passing GPU is disabled in settings),
+then exit `3`; `engaged` when the self-test passes on at least one channel;
 `stopped` with `exit` on a graceful exit. When another instance is running the app
-exits `4` and leaves `status.json` untouched.
+exits `4` and leaves `status.json` untouched. `--automation` waits up to 15 s for the
+single-instance mutex before exiting `4`, so a just-stopped instance can finish exiting.
+Once `stopped` or `unavailable` is written, later writes are ignored.
+
+**Readers must key off `state` and `engaged`, not `reason`.** `reason` is explanatory text
+and new values may be added.
 
 A forced kill leaves the last state on disk. **A reader must match `pid` and
 `startedUtc` against the process it launched** before trusting the file.
@@ -162,9 +176,12 @@ After a forced stop, crash or power loss the driver can keep the app's manual fa
 curve. While controlling a GPU through ADLX the app records the pre-app per-state
 fan speeds and Zero RPM state in `baseline.json` and marks the entry dirty before
 its first fan write. `--restore-auto` puts every GPU with a matching dirty entry back on
-that recorded state and marks the entry clean. It exits `4` if the app is running and
-`3` without loading any AMD library when no entry is dirty. The installer runs it on
-uninstall. ADL fallback adapters are not journaled. A corrupt `baseline.json` is set
+that recorded state and marks the entry clean. It waits up to 15 s for the app's
+single-instance mutex, then exits `4` if the app is still running; it exits `3` without
+loading any AMD library when no entry is dirty. A dirty entry is restored only when the
+GPU's current state looks like one this app wrote (one flat duty in the 20-85 % range,
+Zero RPM off); otherwise the entry is stale and is just cleared. The installer runs
+`--stop`, then a `taskkill` fallback, then `--restore-auto` on uninstall. ADL fallback adapters are not journaled. A corrupt `baseline.json` is set
 aside as `baseline.json.bad` and ignored; it never blocks fan control.
 
 ## Troubleshooting: "Fan Control Not Working?"

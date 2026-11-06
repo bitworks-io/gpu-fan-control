@@ -21,6 +21,8 @@ internal sealed class AutomationStatusWriter
     private readonly string _version;
     private readonly object _lock = new();
     private readonly HashSet<string> _failedStates = new();
+    private string? _terminalState;
+    private bool _loggedIgnored;
 
     public AutomationStatusWriter(string path, LogService log)
     {
@@ -79,6 +81,19 @@ internal sealed class AutomationStatusWriter
             string json = status.ToJson();
             lock (_lock)
             {
+                // stopped / unavailable are final: a late write (e.g. engaged after a race) must not overwrite them.
+                if (_terminalState != null)
+                {
+                    if (!_loggedIgnored)
+                    {
+                        _loggedIgnored = true;
+                        _log.Log($"status.json: ignoring {status.State} after {_terminalState}");
+                    }
+                    return;
+                }
+                if (status.State == AutomationStatus.StateStopped || status.State == AutomationStatus.StateUnavailable)
+                    _terminalState = status.State;
+
                 string? err = null;
                 for (int attempt = 0; attempt <= ExtraAttempts; attempt++)
                 {

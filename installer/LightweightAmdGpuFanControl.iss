@@ -62,7 +62,11 @@ Filename: "{app}\{#MyAppExeName}"; Flags: nowait; Check: ClosedRunningInstance
 [UninstallRun]
 ; Uninstall must leave the fan on its pre-app curve. Inno runs [UninstallRun] first, before any file is
 ; removed, so the exe and baseline.json still exist here; [UninstallDelete] runs afterwards.
-Filename: "{cmd}"; Parameters: "/C taskkill /F /IM {#MyAppExeName}"; Flags: runhidden waituntilterminated; RunOnceId: "StopApp"
+; 1. --stop asks the running app to exit gracefully; that restores every backend, ADL included.
+; 2. taskkill is only a fallback for an app that did not stop (or an older build with no --stop listener).
+; 3. --restore-auto covers ADLX after a kill, from the journal.
+Filename: "{app}\{#MyAppExeName}"; Parameters: "--stop"; Flags: runhidden waituntilterminated; RunOnceId: "StopApp"
+Filename: "{cmd}"; Parameters: "/C taskkill /F /IM {#MyAppExeName}"; Flags: runhidden waituntilterminated; RunOnceId: "KillApp"
 Filename: "{app}\{#MyAppExeName}"; Parameters: "--restore-auto"; Flags: runhidden waituntilterminated; RunOnceId: "RestoreFans"
 
 [UninstallDelete]

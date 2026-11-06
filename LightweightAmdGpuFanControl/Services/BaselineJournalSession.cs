@@ -95,16 +95,16 @@ internal sealed class BaselineJournalSession
             {
                 var entry = _journal.Find(id);
                 var choice = BaselinePlanner.Choose(id, captured, entry);
-                if (choice.Source == BaselineSource.Journal)
-                    Log(_log, $"ADLX GPU '{id.Name}': {choice.Reason}");
-                else if (entry != null && entry.Dirty)
-                    Log(_log, $"ADLX GPU '{id.Name}': journal entry ignored: {choice.Reason}");
+                if (entry != null && entry.Dirty)
+                    Log(_log, choice.DecisionLine(id.Name));
+                else if (entry != null)
+                    Log(_log, $"ADLX GPU '{id.Name}': journal {choice.Kind}: {choice.Reason}");
                 return choice;
             }
             catch (Exception ex)
             {
                 Log(_log, $"journal choose failed for '{id.Name}': {ex.GetType().Name}: {ex.Message}");
-                return new BaselineChoice { Baseline = captured, Source = BaselineSource.Captured, Reason = "journal error; using the captured state" };
+                return new BaselineChoice { Baseline = captured, Source = BaselineSource.Captured, Kind = BaselineChoiceKind.NoEntry, Reason = "journal error; using the captured state" };
             }
         }
     }
@@ -116,7 +116,7 @@ internal sealed class BaselineJournalSession
             try
             {
                 _journal.MarkDirty(id, b, DateTime.UtcNow);
-                Save("mark dirty");
+                Save("mark dirty", flushToDisk: true);
             }
             catch (Exception ex) { Log(_log, $"journal mark-dirty failed for '{id.Name}': {ex.GetType().Name}: {ex.Message}"); }
         }
@@ -129,31 +129,31 @@ internal sealed class BaselineJournalSession
             try
             {
                 if (_journal.MarkClean(id))
-                    Save("mark clean");
+                    Save("mark clean", flushToDisk: false); // losing a "clean" is harmless; exit handlers are time-limited
             }
             catch (Exception ex) { Log(_log, $"journal mark-clean failed for '{id.Name}': {ex.GetType().Name}: {ex.Message}"); }
         }
     }
 
-    public void PruneAbsent(IEnumerable<GpuIdentity> present)
+    public void PruneAbsent(IEnumerable<GpuIdentity> present, bool includeDirty)
     {
         lock (_gate)
         {
             try
             {
-                var removed = _journal.PruneAbsent(present);
+                var removed = _journal.PruneAbsent(present, includeDirty);
                 foreach (var e in removed)
                     Log(_log, $"journal: dropping entry for '{e.Name}' (GPU not present, dirty={e.Dirty.ToString().ToLowerInvariant()})");
                 if (removed.Count > 0)
-                    Save("prune");
+                    Save("prune", flushToDisk: true);
             }
             catch (Exception ex) { Log(_log, $"journal prune failed: {ex.GetType().Name}: {ex.Message}"); }
         }
     }
 
-    private void Save(string what)
+    private void Save(string what, bool flushToDisk)
     {
-        if (!AtomicFile.TryWriteAllText(_path, _journal.ToJson(), out var err))
+        if (!AtomicFile.TryWriteAllText(_path, _journal.ToJson(), out var err, flushToDisk))
             Log(_log, $"baseline.json write failed ({what}): {err}");
     }
 

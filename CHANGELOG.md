@@ -32,7 +32,11 @@ Not validated on hardware yet.
   `3` nothing to restore, `4` app running, `1` error.
 - Start-up diagnostics in `log.txt`: ADLX init result, GPU count, per-GPU manual-tuning result,
   ADL Overdrive caps and version, and the path and version of each loaded `ati*` / `amd*` module.
-- Usage errors exit `2`: `--probe` with `--restore-auto`, or `--no-preload` without `--probe`.
+- `--stop`: asks a running instance to exit gracefully and waits up to 20 s. Exit `0` stopped,
+  `3` not running, `1` timeout or an older running build. It never kills the process.
+- Status reason `no-enabled-gpu` (a GPU passed the self-test but all passing GPUs are disabled).
+- Start-up log warning when ATI/AMD modules from a different driver line are loaded.
+- Usage errors exit `2`: any two of `--probe`, `--restore-auto` and `--stop`, or `--no-preload` without `--probe`.
   Unknown arguments are logged and ignored.
 
 ### Changed
@@ -43,7 +47,13 @@ Not validated on hardware yet.
   DLL search.
 - **Overdrive8 adapters no longer use the ADL fan path.** Only Overdrive 7 reaches OverdriveN
   (unchanged, including CustomFan) and Overdrive 5 reaches Overdrive5. Overdrive 8 is ADLX-only.
-- **The uninstaller restores the pre-app fan state** (`--restore-auto`) before removing files.
+- **The uninstaller restores the pre-app fan state** (`--stop`, then a `taskkill` fallback, then
+  `--restore-auto`) before removing files.
+- **The journal is only applied to a state the app wrote.** A dirty entry whose current fan state
+  is not one flat duty in 20-85 % with Zero RPM off (stale), or already equals the journaled state,
+  is cleared instead of applied. A journal restore the driver rejects falls back to `Reset()`.
+  Tray start never prunes a dirty entry. `--restore-auto` and `--automation` wait up to 15 s for
+  the single-instance mutex.
 
 ### Security
 

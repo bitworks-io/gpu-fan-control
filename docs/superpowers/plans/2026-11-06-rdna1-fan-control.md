@@ -114,9 +114,9 @@ The bound copies are signed with AMD's embedded signature (subject `O=Advanced M
   - Every loaded module named `ati*` or `amd*`, with its path and version, so that bare-name loads of other AMD DLLs show up.
 - Also reports the restore journal's state (Phase E): no file, clean, or which GPUs are dirty.
 - Writes the report to `log.txt` and to `probe-<utc>.txt` beside it, then exits.
-- Exit codes are in the CLI table under Phase F: `0` at least one controllable GPU, `3` none, `4` another instance is running (refuses), `1` error, `2` usage error.
+- Exit codes are in the CLI table under Phase F: `0` at least one GPU with ADLX manual fan tuning (ADL adapters are reported, not counted), `3` none, `4` another instance is running (refuses), `1` error, `2` usage error.
 - Shows no window and no MessageBox.
-- The probe compiles against a read-only interface with no Set, Reset, Restore or ZeroRPM-set member, so it cannot write a fan value. Releasing an ADLX interface performs no write; verify that in `ManualFanTuning`/wrapper `Dispose` while implementing.
+- Read-only status comes from the probe's read-only capability interface plus a source-guard test (`CapabilityProbe_CallsNoFanWriteApi`) that fails if `CapabilityProbe.cs` mentions any fan-write API. It is not a compiler guarantee. Releasing an ADLX interface performs no write; verify that in `ManualFanTuning`/wrapper `Dispose` while implementing.
 
 **Phase E — restore after an unclean stop. DECIDED: bundled in 1.1.0.** 1.1.0 final does not wait for the downstream automation to start calling `--restore-auto`. A dirty journal alone already makes the next graceful exit return to the true pre-app state, which is better than v1.0 on every generation.
 
@@ -146,25 +146,32 @@ This lets the journal use only public wrapper members: `GetCurrentState()`, `Get
    - The tuning-state count is stored and validated, but it is not part of the key. A GPU whose count changes therefore overwrites its stale entry rather than leaving a second one.
    - Each entry holds the pre-app per-state speeds, `zeroRpmSupported`, `zeroRpm`, `dirty` and a UTC timestamp.
    - Written atomically: a temp file in the same folder, then replace.
-2. **Choosing the baseline at channel creation** (`FanController.Initialize`), after the wrapper captures the current state:
-   - A **dirty** entry with the same identity, a speed count equal to the state count, every speed within 0–100 and the same `zeroRpmSupported` becomes the baseline. The log says it is recovering a state left by an unclean stop.
-   - In every other case, the captured state is the baseline, as in v1.0. That covers no entry, a clean entry, an invalid entry and a capability mismatch.
+2. **Choosing the baseline at channel creation** (`FanController.Initialize`), after the wrapper captures the current state. `BaselinePlanner.Choose` classifies the entry in this order:
+   1. No entry: `NoEntry`. Not dirty: `Clean`.
+   2. **Invalid:** identity, state count, speed count, speed range 0–100 or `zeroRpmSupported` does not match.
+   3. **AlreadyRestored:** the captured speeds equal the entry's speeds and the zero-RPM flag is equal or unsupported.
+   4. **Stale:** the captured state does not look app-written. The app writes one flat duty clamped to 20–85 with zero-RPM off, so the test is: max − min ≤ 1, min ≥ 19, max ≤ 86, zero-RPM off.
+   5. Otherwise **Journal**: the entry becomes the baseline. The log says it is recovering a state left by an unclean stop.
+   - In every other case, the captured state is the baseline, as in v1.0.
+   - Every dirty entry logs one decision line, in the tray start and in `--restore-auto`:
+     `journal: '<name>' dirty entry -> <decision> (current=[s1,..] zeroRpm=<on|off|n/a>; journal=[s1,..] zeroRpm=<on|off|n/a>; <reason>)`, where `<decision>` is `app-written` (Journal), `stale`, `already-restored` or `invalid`.
    - The current state is never captured over a valid dirty entry.
 3. **Marking dirty:** immediately before the **first fan write** of a control period (the startup self-test's 35 % is the first one), the entry is written as dirty with the chosen baseline. A recovered entry is already dirty, so nothing is written.
 4. **Restoring:** both `Reset()` call sites go through one baseline-aware restore.
    - The sites are `RestoreAutomatic` and the release-before-decrease in `SetFanPercent` (`FanController.cs:99`). If only one went through it, a recovering instance would briefly re-apply the killed instance's curve on every decrease.
    - When the baseline came from the capture, restore calls `Reset()` exactly as v1.0 does, so the RDNA2/3 path is unchanged.
-   - When it came from the journal, restore calls `SetZeroRPM(zeroRpm)` (if supported), then `SetFanTuningStates(speeds)`.
-   - A successful `RestoreAutomatic` marks the entry clean. A failed one leaves it dirty.
-5. **Pruning:** after channel creation, dirty entries whose identity matches no present GPU are dropped and logged. If `UniqueId` turns out not to be stable across reboots, the outcome is a discarded entry and v1.0 behaviour. That is a safe failure.
+   - When it came from the journal, restore calls `SetZeroRPM(zeroRpm)` (if supported), then `SetFanTuningStates(speeds)`. If the driver rejects that, restore logs it and falls back to `Reset()`, and reports the restore as not exact.
+   - A restore that applied the journal exactly marks the entry clean. A failed one, or one that fell back to `Reset()`, leaves it dirty.
+   - `MarkDirty` is saved with a disk flush. `MarkClean` is saved without one: losing a "clean" is harmless, and exit handlers are time-limited.
+5. **Pruning:** after channel creation, entries whose identity matches no present GPU are dropped and logged. The tray path never drops a dirty entry, and an empty GPU list prunes nothing. `--restore-auto` also drops absent dirty entries (still never on an empty list). If `UniqueId` turns out not to be stable across reboots, the outcome is a discarded entry and v1.0 behaviour. That is a safe failure.
 6. **Degrade, never block:** a corrupt journal (parse error, wrong schema) is logged and treated as empty. It is renamed to `baseline.json.bad` so it is never re-read. A failed journal write is logged and control continues as in v1.0. Fan control on a hot card is never refused because of the journal.
 7. **`--restore-auto` one-shot CLI:**
-   - It refuses with exit `4` if the app is running (single-instance mutex held). It first waits up to 3 s for the mutex, because a just-killed instance may still hold it for a moment. An abandoned mutex counts as free.
+   - It refuses with exit `4` if the app is running (single-instance mutex held). It first waits up to 15 s for the mutex, because a process killed inside a driver call can take a while to die. An abandoned mutex counts as free.
    - If the journal has no dirty entry, it exits `3` without loading ADL or ADLX.
-   - Otherwise it runs the Phase B pre-load and opens ADLX. For every GPU whose valid dirty entry matches, it restores the journaled state and marks the entry clean. It prunes dirty entries for absent GPUs (logged).
-   - Exit `0` when at least one GPU was restored and none failed; `1` on any failure; `3` when nothing matched. No UI, no self-test, no other writes.
+   - Otherwise it runs the Phase B pre-load and opens ADLX. Per dirty GPU: a `Journal` choice is restored (`restored++`, or `failed++` with the entry left dirty); `AlreadyRestored` and `Stale` are marked clean and counted as neither; `Invalid` counts as failed and the entry stays dirty, because the fan may still carry the killed run's curve. It prunes entries for absent GPUs (logged).
+   - Exit `0` when at least one GPU was restored and none failed; `1` on any failure; `3` when nothing needed restoring. No UI, no self-test, no other writes.
 8. **Installer:**
-   - **Uninstall** today removes the journal folder without restoring. Add `[UninstallRun]` entries: `taskkill /F` the app, then `--restore-auto` with `waituntilterminated`.
+   - **Uninstall** today removes the journal folder without restoring. `[UninstallRun]` runs, in order: `--stop` (graceful exit, restores every backend including ADL), `taskkill /F` as a fallback, then `--restore-auto` (covers ADLX after a kill), each with `waituntilterminated`. `--stop` is not used in `PrepareToInstall`, because the installed exe there may be v1.0.
    - Inno Setup runs `[UninstallRun]` as the **first** step of uninstallation, before any file is removed. So the exe and `baseline.json` still exist when `--restore-auto` runs, and `[UninstallDelete]` removes the folder only afterwards.
    - **Upgrade** needs no change: the relaunched app recovers from the journal.
 9. **Scope:** ADLX only.
@@ -182,9 +189,11 @@ Downstream automation counts "engaged" when the process launches. A v1.0 app par
   1. Right after the single-instance mutex is acquired: `state: "starting"`.
   2. If no backend initialises: log the reasons, write `state: "unavailable"` with `reason: "no-backend"`, and exit `3`.
   3. If the startup self-test fails on every channel: write `state: "unavailable"` with `reason: "self-test-failed"`, then exit `3` gracefully (restore first).
-  4. If the self-test passes on at least one channel: write `state: "engaged"`, listing the passing GPUs.
-  5. On a graceful exit: `state: "stopped"`, `reason: "exit"`.
-  - "Already running" exits `4` and **does not** touch `status.json`, so the running instance's file stays authoritative.
+  4. If it passes on at least one channel but every passing GPU is disabled in settings: write `state: "unavailable"` with `reason: "no-enabled-gpu"`, then exit `3` gracefully.
+  5. If it passes on at least one enabled channel: write `state: "engaged"`, listing the passing enabled GPUs.
+  6. On a graceful exit: `state: "stopped"`, `reason: "exit"`.
+  - After `stopped` or `unavailable` is written, later writes are ignored.
+  - "Already running" exits `4` and **does not** touch `status.json`, so the running instance's file stays authoritative. `--automation` waits up to 15 s for the single-instance mutex first.
   - **`--status-file <fullpath>` (optional):** writes the status file to that path instead of the default, so a caller does not have to guess which user profile it lands in.
     - The path must be drive-rooted (no UNC, no relative path, no `.`/`..` segment, no illegal characters), with an existing parent directory, and neither the parent nor the file may be a reparse point.
     - A missing or invalid value is logged and falls back to the default path. It never stops the app.
@@ -212,7 +221,7 @@ Downstream automation counts "engaged" when the process launches. A v1.0 app par
 
 - `engaged` is true only when `state` is `"engaged"`.
 - `gpu` and `backend` describe the first passing GPU; `gpus` lists every one.
-- `reason` is one of `null`, `"no-backend"`, `"self-test-failed"` or `"exit"`.
+- `reason` is one of `null`, `"no-backend"`, `"self-test-failed"`, `"no-enabled-gpu"` or `"exit"`. Readers key off `state` and `engaged`, not `reason`.
 
 **CLI (all modes):**
 
@@ -222,8 +231,9 @@ Downstream automation counts "engaged" when the process launches. A v1.0 app par
 | `--automation [--status-file <fullpath>]` | Tray app without modal UI, writes `status.json` | `0` graceful exit · `3` unavailable · `4` already running |
 | `--probe [--no-preload]` | Read-only report (Phase D) | `0` controllable GPU · `3` none · `4` running · `1` error |
 | `--restore-auto` | One-shot journal restore (Phase E) | `0` restored · `3` nothing to restore · `4` running · `1` error |
+| `--stop` | Graceful stop of a running instance; opens the stop event only, never kills | `0` stopped · `3` not running · `1` timeout or older running build |
 
-- **Usage errors exit `2`, with no UI:** combining `--probe` with `--restore-auto`, or giving `--no-preload` without `--probe`.
+- **Usage errors exit `2`, with no UI:** combining any two of `--probe`, `--restore-auto` and `--stop`, or giving `--no-preload` without `--probe`.
 - **Matching:** arguments are case-insensitive.
 - **Unknown arguments** are logged and ignored, so a newer caller does not break an older build.
 - **`--automation` with `--probe` or `--restore-auto`** is accepted; those modes are already non-interactive.
@@ -312,6 +322,7 @@ Each experiment below is a template. The lead fills in the bench, card and build
 - **Pass:**
   - a regulated verdict on every generation, with no "fan unverified" or "missed engagement";
   - after each run, the automation's stop (a kill) is followed by `--restore-auto` (exit `0`) and then a read-only probe. The fan state is back at the pre-run baseline and the journal is clean.
+  - after the kill, the log shows the GPU's state was recognised as app-written, i.e. a decision line `journal: '<name>' dirty entry -> app-written (current=[...] ...; journal=[...] ...; ...)`, followed by `--restore-auto` exit `0`.
   - If the automation does not yet call `--restore-auto`, the operator runs it by hand at that point and records that.
 - **Recovery:** if a leftover manual curve is found anyway, a human resets fan tuning in AMD Software before the bench takes another job, and E3 fails.
 - **Cleanup:** none needed when the final is tagged on the validated code (§5).

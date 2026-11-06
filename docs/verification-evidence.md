@@ -42,7 +42,7 @@ gh run download <run-id> -n LightweightAmdGpuFanControl-Setup
 
 ## 2026-11-06 — 1.1.0 implementation (pre-hardware)
 
-- **Core unit tests:** `DOTNET_ROLL_FORWARD=Major dotnet test LightweightAmdGpuFanControl.Tests` → **Passed: 140, Failed: 0** (net8.0). Covers the INF resolver, bound-line planner, signer pin, Overdrive routing, launch options and exit codes, probe report, `status.json` model and `--status-file` validation, atomic file write, and the restore journal.
+- **Core unit tests:** `DOTNET_ROLL_FORWARD=Major dotnet test LightweightAmdGpuFanControl.Tests` → **Passed: 161, Failed: 0** (net8.0). Covers the INF resolver, bound-line planner, signer pin, Overdrive routing, launch options and exit codes (including `--stop`), probe report, `status.json` model and `--status-file` validation, atomic file write, the restore journal and its staleness classification, and source guards for `--probe` (no fan writes) and `--stop` (open-only, never kills).
 - **App compile (net48):** `dotnet build LightweightAmdGpuFanControl/LightweightAmdGpuFanControl.csproj -p:AdlxBindPath=<any existing file>` → **0 errors** (warnings only). This is a compile check, not a Windows run.
 - **Workflow lint:** `actionlint .github/workflows/build-windows.yml` → clean.
 - **Not run:** the Windows CI build and installer, and all on-hardware behaviour.

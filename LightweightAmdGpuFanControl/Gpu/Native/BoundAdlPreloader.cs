@@ -81,7 +81,7 @@ internal static class BoundAdlPreloader
         SafeLog(log, $"adl-preload: {decision.Kind} ({versions})");
 
         if (decision.Kind == BoundAdlKind.Preload)
-            return Preload(log, decision);
+            return Preload(log, decision, sys32);
 
         HardenAdlxLoad(log, sys32);
         return decision;
@@ -130,16 +130,25 @@ internal static class BoundAdlPreloader
         facts.AdlxPath = ResolveFile(facts, lines, AdlxName);
 
         if (facts.AtiadlxxPath != null)
-        {
             facts.BoundAtiadlxxVersion = Win32.BinaryVersion(facts.AtiadlxxPath);
-            facts.AtiadlxxTrusted = IsTrusted(log, facts.AtiadlxxPath);
-        }
         if (facts.AdlxPath != null)
-        {
             facts.BoundAdlxVersion = Win32.BinaryVersion(facts.AdlxPath);
+
+        // The signature check only matters when the bound copies would actually be loaded. Skipping it
+        // when System32 already matches keeps the common single-driver-line start-up free of
+        // WinVerifyTrust, which can stall for seconds on an offline machine.
+        if (SameVersion(facts.SystemAtiadlxxVersion, facts.BoundAtiadlxxVersion)
+            && SameVersion(facts.SystemAdlxVersion, facts.BoundAdlxVersion))
+            return;
+
+        if (facts.AtiadlxxPath != null)
+            facts.AtiadlxxTrusted = IsTrusted(log, facts.AtiadlxxPath);
+        if (facts.AdlxPath != null)
             facts.AdlxTrusted = IsTrusted(log, facts.AdlxPath);
-        }
     }
+
+    private static bool SameVersion(string? system, string? bound) =>
+        system != null && bound != null && string.Equals(system.Trim(), bound.Trim(), StringComparison.Ordinal);
 
     private static void EnumerateAmdBoundInfs(BoundAdlFacts facts, List<string> infs)
     {
@@ -244,7 +253,7 @@ internal static class BoundAdlPreloader
     }
 
     // Step 8: load the bound libraries, ADL first, then ADLX.
-    private static BoundAdlDecision Preload(LogService log, BoundAdlDecision decision)
+    private static BoundAdlDecision Preload(LogService log, BoundAdlDecision decision, string sys32)
     {
         string? already = Win32.ModulePath(AtiadlxxName) ?? Win32.ModulePath(AdlxName);
         if (already != null)
@@ -255,14 +264,24 @@ internal static class BoundAdlPreloader
 
         const uint flags = Win32.LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | Win32.LOAD_LIBRARY_SEARCH_SYSTEM32;
 
-        if (Win32.LoadLibraryExW(decision.AtiadlxxPath!, IntPtr.Zero, flags) == IntPtr.Zero)
+        IntPtr ati = Win32.LoadLibraryExW(decision.AtiadlxxPath!, IntPtr.Zero, flags);
+        if (ati == IntPtr.Zero)
         {
-            SafeLog(log, $"adl-preload: could not load {decision.AtiadlxxPath}: Win32 error {System.Runtime.InteropServices.Marshal.GetLastWin32Error()}");
-            return decision;
+            SafeLog(log, $"adl-preload: could not load {decision.AtiadlxxPath}: Win32 error {System.Runtime.InteropServices.Marshal.GetLastWin32Error()}; continuing with the System32 libraries");
+            HardenAdlxLoad(log, sys32);
+            return new BoundAdlDecision { Kind = BoundAdlKind.Unresolved, Reason = "the bound atiadlxx.dll could not be loaded" };
         }
 
         if (Win32.LoadLibraryExW(decision.AdlxPath!, IntPtr.Zero, flags) == IntPtr.Zero)
+        {
             SafeLog(log, $"adl-preload: could not load {decision.AdlxPath}: Win32 error {System.Runtime.InteropServices.Marshal.GetLastWin32Error()}");
+            // Never leave one driver line's ADL beside another line's ADLX in the same process: undo the
+            // first load. Nothing has called into it yet, so this reference is the only one.
+            Win32.FreeLibrary(ati);
+            SafeLog(log, $"adl-preload: unloaded the bound {AtiadlxxName}; continuing with the System32 libraries ({AtiadlxxName} now {Win32.ModulePath(AtiadlxxName) ?? "not loaded"})");
+            HardenAdlxLoad(log, sys32);
+            return new BoundAdlDecision { Kind = BoundAdlKind.Unresolved, Reason = "the bound amdadlx64.dll could not be loaded" };
+        }
 
         // Never freed: the process keeps the bound libraries for its lifetime.
         CheckLoaded(log, AtiadlxxName, decision.AtiadlxxPath!);

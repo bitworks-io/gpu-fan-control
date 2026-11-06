@@ -1,3 +1,4 @@
+using LightweightAmdGpuFanControl.Drivers;
 using LightweightAmdGpuFanControl.Services;
 
 namespace LightweightAmdGpuFanControl.Gpu.Adl;
@@ -56,37 +57,50 @@ public sealed class AdlFanControlBackend : IFanControlBackend
     internal static AdlFanControlBackend? TryCreateForAdapter(
         AdlNativeApi api, int adapterIndex, LogService logService)
     {
-        if (api.OverdriveCaps(api.Context, adapterIndex, out var supported, out _, out var version) != AdlNativeApi.Ok || supported == 0)
+        var capsResult = api.OverdriveCaps(api.Context, adapterIndex, out var supported, out var enabled, out var version);
+        var family = OverdriveRouting.Classify(version);
+        logService.Log($"ADL adapter {adapterIndex}: caps rc={capsResult} supported={supported} enabled={enabled} version={version} family={family}");
+        if (capsResult != AdlNativeApi.Ok || supported == 0)
             return null;
 
-        if (version >= 7)
+        switch (family)
         {
-            bool useCustomFan = false;
-            if (api.CustomFanCaps != null &&
-                api.CustomFanCaps(api.Context, adapterIndex, out var customSupported) == AdlNativeApi.Ok &&
-                customSupported != 0 &&
-                api.CustomFanGet != null &&
-                api.CustomFanSet != null)
+            case OverdriveFamily.OverdriveN:
             {
-                useCustomFan = true;
+                bool useCustomFan = false;
+                if (api.CustomFanCaps != null &&
+                    api.CustomFanCaps(api.Context, adapterIndex, out var customSupported) == AdlNativeApi.Ok &&
+                    customSupported != 0 &&
+                    api.CustomFanGet != null &&
+                    api.CustomFanSet != null)
+                {
+                    useCustomFan = true;
+                }
+                else
+                {
+                    var fan = new ADLODNFanControl();
+                    if (api.OverdriveNFanControlGet(api.Context, adapterIndex, ref fan) != AdlNativeApi.Ok)
+                        return null;
+                }
+                logService.Log($"Created ADL OverdriveN backend for adapter {adapterIndex} (Overdrive {version}).");
+                return new AdlFanControlBackend(api, adapterIndex, version, useCustomFan, logService);
             }
-            else
-            {
-                var fan = new ADLODNFanControl();
-                if (api.OverdriveNFanControlGet(api.Context, adapterIndex, ref fan) != AdlNativeApi.Ok)
-                    return null;
-            }
-            logService.Log($"Created ADL OverdriveN backend for adapter {adapterIndex} (Overdrive {version}).");
-            return new AdlFanControlBackend(api, adapterIndex, version, useCustomFan, logService);
-        }
 
-        if (version == 5 && api.Overdrive5FanSpeedGet != null && api.Overdrive5FanSpeedSet != null)
-        {
-            logService.Log($"Created ADL Overdrive5 backend for adapter {adapterIndex}.");
-            return new AdlFanControlBackend(api, adapterIndex, version, false, logService);
-        }
+            case OverdriveFamily.Overdrive5:
+                if (api.Overdrive5FanSpeedGet != null && api.Overdrive5FanSpeedSet != null)
+                {
+                    logService.Log($"Created ADL Overdrive5 backend for adapter {adapterIndex}.");
+                    return new AdlFanControlBackend(api, adapterIndex, version, false, logService);
+                }
+                return null;
 
-        return null;
+            case OverdriveFamily.Overdrive8:
+                logService.Log($"ADL adapter {adapterIndex}: Overdrive8 \u2014 no ADL fan backend; ADLX is the supported path.");
+                return null;
+
+            default:
+                return null;
+        }
     }
 
     public string BackendName => _overdriveVersion == 5 ? "ADL Overdrive5" : "ADL OverdriveN";
@@ -117,7 +131,14 @@ public sealed class AdlFanControlBackend : IFanControlBackend
             if (_api.OverdriveCaps(_api.Context, adapterIndex, out var supported, out _, out var version) != AdlNativeApi.Ok || supported == 0)
                 continue;
 
-            if (version >= 7 && IsOverdriveNFanSupported(adapterIndex))
+            var family = OverdriveRouting.Classify(version);
+            if (family == OverdriveFamily.Overdrive8)
+            {
+                _logService.Log($"ADL adapter {adapterIndex}: Overdrive8 \u2014 no ADL fan backend; ADLX is the supported path.");
+                continue;
+            }
+
+            if (family == OverdriveFamily.OverdriveN && IsOverdriveNFanSupported(adapterIndex))
             {
                 _adapterIndex = adapterIndex;
                 _overdriveVersion = version;
@@ -125,7 +146,7 @@ public sealed class AdlFanControlBackend : IFanControlBackend
                 return true;
             }
 
-            if (version == 5 && _api.Overdrive5FanSpeedGet != null && _api.Overdrive5FanSpeedSet != null)
+            if (family == OverdriveFamily.Overdrive5 && _api.Overdrive5FanSpeedGet != null && _api.Overdrive5FanSpeedSet != null)
             {
                 _adapterIndex = adapterIndex;
                 _overdriveVersion = version;

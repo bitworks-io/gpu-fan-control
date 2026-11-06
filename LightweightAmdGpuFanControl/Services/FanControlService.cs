@@ -2,6 +2,7 @@ using System.Threading;
 using System.Windows.Forms;
 using LightweightAmdGpuFanControl.Control;
 using LightweightAmdGpuFanControl.Gpu;
+using LightweightAmdGpuFanControl.Gpu.Native;
 using LightweightAmdGpuFanControl.Models;
 
 namespace LightweightAmdGpuFanControl.Services;
@@ -68,6 +69,7 @@ public class FanControlService
     {
         _uiContext = SynchronizationContext.Current;
         _notifyIcon = notifyIcon;
+        BoundAdlPreloader.Run(_logService);
         _channelSet = FanControlBackendFactory.CreateAll(_logService);
 
         if (_channelSet == null || !_channelSet.HasChannels)

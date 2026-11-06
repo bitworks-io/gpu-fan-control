@@ -80,7 +80,8 @@ public class FanControlService
         _uiContext = SynchronizationContext.Current;
         _notifyIcon = notifyIcon;
         BoundAdlPreloader.Run(_logService);
-        _channelSet = FanControlBackendFactory.CreateAll(_logService);
+        var journal = BaselineJournalSession.Open(AppPaths.BaselinePath, _logService);
+        _channelSet = FanControlBackendFactory.CreateAll(_logService, journal);
         LogLoadedModule("atiadlxx.dll");
         LogLoadedModule("amdadlx64.dll");
 

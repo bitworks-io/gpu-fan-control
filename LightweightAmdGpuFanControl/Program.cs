@@ -30,10 +30,7 @@ static class Program
             return CapabilityProbe.Run(log, options);
 
         if (options.Mode == LaunchMode.RestoreAuto)
-        {
-            log.Log("--restore-auto is not available in this build");
-            return ExitCodes.Error;
-        }
+            return RestoreAutoRunner.Run(log);
 
         if (!SingleInstance.TryAcquire(out _instanceMutex, 0))
         {

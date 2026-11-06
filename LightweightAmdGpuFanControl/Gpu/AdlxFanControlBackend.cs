@@ -33,7 +33,7 @@ public sealed class AdlxFanControlBackend : IFanControlBackend
     /// Builds a channel for the GPU at <paramref name="gpuIndex"/> using the shared session.
     /// Returns null when that GPU has no manual fan tuning (skip it, keep the others).
     /// </summary>
-    internal static AdlxFanControlBackend? TryCreateChannel(AdlxSession session, int gpuIndex, LogService logService)
+    internal static AdlxFanControlBackend? TryCreateChannel(AdlxSession session, int gpuIndex, LogService logService, BaselineJournalSession? journal = null)
     {
         try
         {
@@ -42,7 +42,7 @@ public sealed class AdlxFanControlBackend : IFanControlBackend
                 return null;
 
             var fanController = new FanController(session.SystemServices, logService);
-            if (!fanController.Initialize(gpu, out var reason))
+            if (!fanController.Initialize(gpu, out var reason, journal))
             {
                 logService.Log($"ADLX GPU {gpuIndex} '{gpu.Name}': {reason ?? "manual fan tuning unavailable"}");
                 return null;

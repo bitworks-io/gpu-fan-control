@@ -59,6 +59,12 @@ Filename: "{app}\{#MyAppExeName}"; Description: "Launch {#MyAppName}"; Flags: no
 ; resumes (the forced close skipped the app's fan-restore; leaving the GPU unmanaged is not an option).
 Filename: "{app}\{#MyAppExeName}"; Flags: nowait; Check: ClosedRunningInstance
 
+[UninstallRun]
+; Uninstall must leave the fan on its pre-app curve. Inno runs [UninstallRun] first, before any file is
+; removed, so the exe and baseline.json still exist here; [UninstallDelete] runs afterwards.
+Filename: "{cmd}"; Parameters: "/C taskkill /F /IM {#MyAppExeName}"; Flags: runhidden waituntilterminated; RunOnceId: "StopApp"
+Filename: "{app}\{#MyAppExeName}"; Parameters: "--restore-auto"; Flags: runhidden waituntilterminated; RunOnceId: "RestoreFans"
+
 [UninstallDelete]
 Type: filesandordirs; Name: "{localappdata}\Bitworks\LightweightAmdGpuFanControl"
 

@@ -103,7 +103,7 @@ The bound copies are signed with AMD's embedded signature (subject `O=Advanced M
 **Phase C — ADL Overdrive8 backend (conditional).**
 - Always, in this plan: route only Overdrive version **7** to OverdriveN. Version **8** gets "no ADL fan backend; ADLX is the supported path". All other versions are unsupported.
   - Both routing sites change: `AdlFanControlBackend.cs:62` (channel creation) and `:120`.
-  - **Decided:** Overdrive8 adapters no longer reach v1.0's `ADL2_CustomFan_*` branch. It has no known working case on OD8 (v1.0 was validated on ADLX only), and no unvalidated write path stays reachable. Version 7 (OverdriveN) keeps v1.0's behaviour unchanged, including its CustomFan preference.
+  - **Decided:** Overdrive8 adapters no longer reach v1.0's `ADL2_CustomFan_*` branch. It has no known working case on OD8 (v1.0 was validated on ADLX only), and no unvalidated write path stays reachable. Version 7 (OverdriveN) keeps exactly v1.0's behaviour, including its CustomFan preference. Changing the older-card path is out of scope for an RDNA1 fix, and nothing here would validate it (§7).
 - Only if E1 shows that ADLX still reports no manual fan tuning for RDNA1 with the bound copies loaded: write a separate plan for a full Overdrive8 backend, with its own declared experiment. It would use `ADL2_Overdrive8_Init_SettingX2_Get`, `…Current_SettingX2_Get`, `…Setting_Set`, `ADL2_New_QueryPMLogData_Get`, a fan curve, and zero-RPM / min-speed handling. That backend writes fan values through a second API family and needs its own safety review.
 
 **Phase D — `--probe` mode.** `LightweightAmdGpuFanControl.exe --probe [--no-preload]`:
@@ -142,7 +142,8 @@ This lets the journal use only public wrapper members: `GetCurrentState()`, `Get
 
 **Design:**
 1. **Journal file:** `%LOCALAPPDATA%\Bitworks\LightweightAmdGpuFanControl\baseline.json`.
-   - One entry per ADLX GPU, keyed by identity: GPU name, ADLX `UniqueId` and the tuning-state count. Two identical cards share a name, which is why `UniqueId` is part of the key.
+   - One entry per ADLX GPU, keyed by GPU name plus ADLX `UniqueId`. Two identical cards share a name, which is why `UniqueId` is part of the key.
+   - The tuning-state count is stored and validated, but it is not part of the key. A GPU whose count changes therefore overwrites its stale entry rather than leaving a second one.
    - Each entry holds the pre-app per-state speeds, `zeroRpmSupported`, `zeroRpm`, `dirty` and a UTC timestamp.
    - Written atomically: a temp file in the same folder, then replace.
 2. **Choosing the baseline at channel creation** (`FanController.Initialize`), after the wrapper captures the current state:
@@ -163,7 +164,8 @@ This lets the journal use only public wrapper members: `GetCurrentState()`, `Get
    - Otherwise it runs the Phase B pre-load and opens ADLX. For every GPU whose valid dirty entry matches, it restores the journaled state and marks the entry clean. It prunes dirty entries for absent GPUs (logged).
    - Exit `0` when at least one GPU was restored and none failed; `1` on any failure; `3` when nothing matched. No UI, no self-test, no other writes.
 8. **Installer:**
-   - **Uninstall** today removes the journal folder without restoring. Add `[UninstallRun]` entries: `taskkill /F` the app, then `--restore-auto` with `waituntilterminated`. `[UninstallRun]` runs before `[UninstallDelete]`.
+   - **Uninstall** today removes the journal folder without restoring. Add `[UninstallRun]` entries: `taskkill /F` the app, then `--restore-auto` with `waituntilterminated`.
+   - Inno Setup runs `[UninstallRun]` as the **first** step of uninstallation, before any file is removed. So the exe and `baseline.json` still exist when `--restore-auto` runs, and `[UninstallDelete]` removes the folder only afterwards.
    - **Upgrade** needs no change: the relaunched app recovers from the journal.
 9. **Scope:** ADLX only.
    - The ADL backends (Overdrive5 and OverdriveN, pre-RDNA) restore by setting the driver's automatic mode, which holds no captured state. A fresh instance's restore already returns them to automatic.
@@ -172,7 +174,7 @@ This lets the journal use only public wrapper members: `GetCurrentState()`, `Get
 
 The fuller fix, restoring ADLX **driver defaults** through `IADLXManualFanTuning1::GetDefault*` (ADLX 1.4), needs binding work in `external/ADLX`. It stays a later follow-up.
 
-**Phase F — `--automation` mode and `status.json` (added at plan review).**
+**Phase F — `--automation` mode and `status.json` (added at plan review; contract signed off 2026-11-06).**
 
 Downstream automation counts "engaged" when the process launches. A v1.0 app parked on the "AMD fan control unavailable" MessageBox therefore counts as engaged. With `--automation`:
 - **No modal UI.** No MessageBox at start-up ("unavailable") and none for "already running". Balloon tips are non-modal and stay.
@@ -183,6 +185,10 @@ Downstream automation counts "engaged" when the process launches. A v1.0 app par
   4. If the self-test passes on at least one channel: write `state: "engaged"`, listing the passing GPUs.
   5. On a graceful exit: `state: "stopped"`, `reason: "exit"`.
   - "Already running" exits `4` and **does not** touch `status.json`, so the running instance's file stays authoritative.
+  - **`--status-file <fullpath>` (optional):** writes the status file to that path instead of the default, so a caller does not have to guess which user profile it lands in.
+    - The path must be drive-rooted (no UNC, no relative path, no `.`/`..` segment, no illegal characters), with an existing parent directory, and neither the parent nor the file may be a reparse point.
+    - A missing or invalid value is logged and falls back to the default path. It never stops the app.
+    - Without the flag, the default path is used, as before.
   - TerminateProcess leaves the last state on disk. The reader therefore matches `pid` and `startedUtc` against the process it launched.
 - **Without `--automation`,** interactive behaviour and the files written are unchanged from v1.0.
 
@@ -213,7 +219,7 @@ Downstream automation counts "engaged" when the process launches. A v1.0 app par
 | Invocation | Behaviour | Exit codes |
 |---|---|---|
 | *(no args)* | Interactive tray app, unchanged from v1.0 | `0` |
-| `--automation` | Tray app without modal UI, writes `status.json` | `0` graceful exit · `3` unavailable · `4` already running |
+| `--automation [--status-file <fullpath>]` | Tray app without modal UI, writes `status.json` | `0` graceful exit · `3` unavailable · `4` already running |
 | `--probe [--no-preload]` | Read-only report (Phase D) | `0` controllable GPU · `3` none · `4` running · `1` error |
 | `--restore-auto` | One-shot journal restore (Phase E) | `0` restored · `3` nothing to restore · `4` running · `1` error |
 
@@ -274,7 +280,12 @@ Each experiment below is a template. The lead fills in the bench, card and build
   - no bench job running, with the automation's own GPU sensor polling idle (it also loads ADL), and no other GPU tools.
   - Run as the bench's interactive user, in that user's session: `--probe`, then `--probe --no-preload`. The declaration names how it is launched in that session.
 - **Bounds:** no fan-write API reachable (compile-time); each run takes 30 s or less. Take a fan snapshot before and after: tuning states, zero-RPM state and RPM, read-only.
-- **Pass:** the pre-load line names both DriverStore copies, ADLX reports manual fan tuning supported, and the `--no-preload` run reports unsupported.
+- **Pass:**
+  - the pre-load line names both DriverStore copies;
+  - ADLX reports manual fan tuning supported;
+  - the `--no-preload` run reports unsupported;
+  - the probe's module list shows **no mixed driver line**: no `ati*`/`amd*` module is loaded from System32 when the bound package ships a file of the same name.
+- **A mixed module list fails E1 even if fan tuning shows as supported.** Something then loads AMD DLLs by bare name at runtime, and a process holding two driver lines can crash inside the driver. In that case Phase B needs redesign before any fan write (E2).
 - **Branches:**
   - Both runs unsupported → first check the probe's AMD module list for System32 copies loaded by bare name, and ADLX's out-of-process service (`AMDADLXServ.exe` ships in both packages). If neither explains it → H1-cap → write the Phase C plan.
   - Both supported → mismatch is not causal → re-investigate with the Phase A diagnostics.
@@ -311,6 +322,7 @@ Each experiment below is a template. The lead fills in the bench, card and build
 - **Full ADL Overdrive8 backend:** only if E1 calls for it (Phase C).
 - **Mixed driver lines across several AMD GPUs:** stays on v1.0 behaviour. It would need one process per driver line.
 - **A restore journal for the ADL backends:** not needed; they restore to the driver's automatic mode (Phase E, item 9).
+- **Possible later cleanup:** removing the CustomFan branch for Overdrive version 7 (older cards). This needs its own validation.
 - **Downstream automation changes:** passing `--automation`, reading `status.json` for engagement, and running `--restore-auto` after a kill. These belong to the downstream owner, not this repo.
 
 ## 8. Implementation plan
@@ -505,6 +517,8 @@ Each experiment below is a template. The lead fills in the bench, card and build
   - `.Unavailable(…, string reason)`
   - `.Stopped(…)`
 - `public static class StatusReasons { public const string NoBackend = "no-backend", SelfTestFailed = "self-test-failed", Exit = "exit"; }`
+- `LaunchOptions` also carries `public string? StatusFile` and `public string? StatusFileError`. `--status-file` consumes the next argument unless that is missing or starts with `--`; then it records a warning, which is not a usage error.
+- `public static string? StatusFilePath.Validate(string? path, Func<string,bool> directoryExists, Func<string,bool> isReparsePoint, out string? error)`. It returns the validated path, or null with an error. The app falls back to the default path on null.
 - `public static bool AtomicFile.TryWriteAllText(string path, string contents, out string? error)`. It writes `path + ".tmp"` in the same folder, then replaces `path` (`File.Replace` when `path` exists, `File.Move` otherwise). It never throws.
 
 - [ ] **Step 1:** Write failing tests:
@@ -518,7 +532,9 @@ Each experiment below is a template. The lead fills in the bench, card and build
   - `AtomicFile_CreatesNew`;
   - `AtomicFile_ReplacesExisting`;
   - `AtomicFile_NoTmpLeftBehind`;
-  - `AtomicFile_MissingFolder_FalseWithError`.
+  - `AtomicFile_MissingFolder_FalseWithError`;
+  - status file: `StatusFile_Valid_Returned`, `StatusFile_Relative_Rejected`, `StatusFile_Unc_Rejected`, `StatusFile_DotDot_Rejected`, `StatusFile_ParentMissing_Rejected`, `StatusFile_ReparseParent_Rejected`, `StatusFile_ReparseFile_Rejected`, `StatusFile_IllegalChar_Rejected`, `StatusFile_Null_Rejected`;
+  - in `LaunchOptionsTests`: `Parse_StatusFile_Captured`, `Parse_StatusFileMissingValue_WarningNotError`, `Parse_StatusFileFollowedByFlag_NotConsumed`, `Parse_NoStatusFile_Null`.
 - [ ] **Step 2:** Run `dotnet test --filter "AutomationStatusTests|AtomicFileTests"`. Expected: FAIL.
 - [ ] **Step 3:** Implement, then wire the app per Phase F:
   - write `starting` after the mutex;
@@ -547,7 +563,7 @@ Each experiment below is a template. The lead fills in the bench, card and build
   - `installer/LightweightAmdGpuFanControl.iss`: two `[UninstallRun]` entries.
 
 **Interfaces — Produces:**
-- `public sealed record GpuIdentity(string Name, int UniqueId, int StateCount) { public string Key { get; } }`. Key = `$"{Name}|{UniqueId}|{StateCount}"`.
+- `public sealed record GpuIdentity(string Name, int UniqueId, int StateCount) { public string Key { get; } }`. Key = `$"{Name}|{UniqueId}"`. StateCount is validated by `Choose`.
 - `public sealed record FanBaseline(IReadOnlyList<int> Speeds, bool ZeroRpmSupported, bool ZeroRpm)`
 - `public sealed class BaselineEntry { public string Key, Name; public int UniqueId, StateCount; public int[] Speeds; public bool ZeroRpmSupported, ZeroRpm, Dirty; public string Utc; }`
 - `BaselineJournal` members:

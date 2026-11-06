@@ -24,7 +24,7 @@ DOTNET_ROLL_FORWARD=Major dotnet test LightweightAmdGpuFanControl.Tests/Lightwei
 ```
 
 ```sh
-# Windows build + installer (CI only; app is net8.0-windows)
+# Windows build + installer (CI only; app is net48)
 gh run view <run-id> --json status,conclusion,jobs
 gh run download <run-id> -n LightweightAmdGpuFanControl-Setup
 ```
@@ -39,6 +39,14 @@ gh run download <run-id> -n LightweightAmdGpuFanControl-Setup
 - Coverage result: not measured (no coverage tooling wired yet).
 - Skipped checks and reason: installer signing (no cert secret); all on-hardware behavior (no AMD GPU on this macOS host).
 - Residual risk: **all runtime fan behavior, restore-to-auto, and the no-admin assumption are unverified** — they require a real AMD Windows PC (Phase 5 checklist in `agent-handoff.md`).
+
+## 2026-11-06 — 1.1.0 implementation (pre-hardware)
+
+- **Core unit tests:** `DOTNET_ROLL_FORWARD=Major dotnet test LightweightAmdGpuFanControl.Tests` → **Passed: 161, Failed: 0** (net8.0). Covers the INF resolver, bound-line planner, signer pin, Overdrive routing, launch options and exit codes (including `--stop`), probe report, `status.json` model and `--status-file` validation, atomic file write, the restore journal and its staleness classification, and source guards for `--probe` (no fan writes) and `--stop` (open-only, never kills).
+- **App compile (net48):** `dotnet build LightweightAmdGpuFanControl/LightweightAmdGpuFanControl.csproj -p:AdlxBindPath=<any existing file>` → **0 errors** (warnings only). This is a compile check, not a Windows run.
+- **Workflow lint:** `actionlint .github/workflows/build-windows.yml` → clean.
+- **Not run:** the Windows CI build and installer, and all on-hardware behaviour.
+- **No hardware validation has run yet.** E1 (read-only probe), E2 (controlled engagement on RDNA1) and E3 (automation regression across generations) are pending approval; see `docs/superpowers/plans/2026-11-06-rdna1-fan-control.md` section 6. RDNA1 control, the bound-line pre-load, the restore journal and `--restore-auto` are unverified on real hardware.
 
 ## 2026-07-12 Phase 5 — first hardware test (RX 7900 XTX) + fixes
 

@@ -1,12 +1,12 @@
 # Agent Handoff
 
-Last reviewed: 2026-07-06
+Last reviewed: 2026-11-06
 
 This document is for the next implementation agent (Codex, Claude Code, or human). Keep it current when architecture, workflows, verification commands, release steps, or known risks change.
 
 ## Project Purpose
 
-**Lightweight AMD GPU Fan Control** is a per-user Windows systray utility (.NET 8 WinForms, `OutputType=WinExe` — not a service) that drives AMD Radeon GPU fans toward a **core (edge) temperature target** (default 65 °C). It exists because AMD Adrenalin's fan curve UI is heavy and awkward; this tool gives a lightweight always-on curve with a safe restore-to-automatic lifecycle. Publisher: Bitworks (bitworks.io).
+**Lightweight AMD GPU Fan Control** is a per-user Windows systray utility (.NET Framework 4.8 WinForms, `OutputType=WinExe` — not a service) that drives AMD Radeon GPU fans toward a **core (edge) temperature target** (default 65 °C). It exists because AMD Adrenalin's fan curve UI is heavy and awkward; this tool gives a lightweight always-on curve with a safe restore-to-automatic lifecycle. Publisher: Bitworks (bitworks.io).
 
 ## Current Feature Set
 
@@ -19,6 +19,7 @@ This document is for the next implementation agent (Codex, Claude Code, or human
 - **Preferences**: core temp target, min/max fan, start-with-Windows, per-GPU checklist, live status readout, feedback link, About button.
 - **About** dialog + Preferences link to the Bitworks contact form for feedback/feature requests.
 - **Start with Windows** (HKCU Run key).
+- **1.1.0 additions** (committed, not hardware-validated): bound-line ADL/ADLX pre-load for RDNA1 (`adl-preload:` log lines); Overdrive8 routed to ADLX only; start-up diagnostics; `--probe [--no-preload]`; `--automation [--status-file <fullpath>]` with `status.json`; `baseline.json` restore journal and `--restore-auto`; uninstaller restores the pre-app fan state. CLI table and exit codes (`0` ok, `1` error, `2` usage, `3` nothing to do, `4` already running) are in `README.md`; design in `docs/superpowers/plans/2026-11-06-rdna1-fan-control.md`.
 
 ## User Stories And Acceptance Evidence
 
@@ -40,14 +41,22 @@ This document is for the next implementation agent (Codex, Claude Code, or human
   - `Control/GpuEnablement.cs`: pure `Reconcile(detectedIds, settings) → IReadOnlyList<GpuConfig>` (primary default-on, new GPUs opt-in, saved prefs respected).
   - `Models/AppSettings.cs`: settings + all range constants. `Services/SettingsService.cs`: load/save + `Validate` clamps; **caches**, so a shared instance applies UI changes live to the poll loop.
   - `AppLinks.cs`: `ContactFormUrl`, `WebsiteUrl`, `FanHelpUrl`, `Open(url)`.
-- `LightweightAmdGpuFanControl/` (**net8.0-windows** WinForms app):
+- `LightweightAmdGpuFanControl/` (**net48** WinForms app):
   - `Gpu/FanControlBackendFactory.cs`: `CreateAll(log) → FanControlChannelSet?`. Prefers ADLX (all GPUs), falls back to ADL (primary only). Never mixes families.
   - `Gpu/FanControlChannelSet.cs`: **owns the single native session** + per-GPU channels; Dispose restores every channel then tears down the session (order matters).
   - `Adlx/AdlxSession.cs`: owns one ADLX init + shared `SystemServices` + `GpuMonitor`. `Gpu/AdlxFanControlBackend.cs`: a **borrowing channel** per GPU (owns only its `FanController`, never the session).
   - `Gpu/Adl/AdlFanControlBackend.cs`: legacy ADL channel; `TryCreateForAdapter(sharedApi, index, log)` borrows a shared `AdlNativeApi`.
   - `Services/FanControlService.cs`: the control loop. One `ControlChannel` (backend + `PolicyState` + flags) per GPU. **Single `_controlLock` serializes ALL native access** (startup tests, poll, restore) — the shared context is not thread-safe. Poll gated until startup tests complete. Publishes `GpuStatus` snapshots via `LatestStatuses` for the UI (UI never calls the backend directly).
   - `Forms/PreferencesForm.cs`, `Forms/AboutForm.cs`, `SystrayApplicationContext.cs`: UI.
-- `LightweightAmdGpuFanControl.Tests/` (**net8.0** xUnit): 26 tests over policy, settings, enablement.
+  - 1.1.0 files (app project):
+    - `Gpu/Native/BoundAdlPreloader.cs`: SetupAPI device and INF lookup, signature and signer check, full-path pre-load; decides once per process.
+    - `Services/CapabilityProbe.cs`: `--probe`; read-only `IFanCapabilitySource` readers for ADLX and ADL, loaded-module list, `probe-*.txt`.
+    - `Services/AutomationStatusWriter.cs`: `status.json` writer for `--automation`; `--status-file` validation.
+    - `Services/BaselineJournalSession.cs`: file-backed `baseline.json`, thread-safe, never throws.
+    - `Services/RestoreAutoRunner.cs`: `--restore-auto` one-shot.
+    - `Services/AppPaths.cs`: data-folder file paths.
+  - 1.1.0 files (Core): `Cli/LaunchOptions.cs` (arguments, `ExitCodes`), `Automation/AutomationStatus.cs` (`status.json` model, `StatusFilePath`), `Diagnostics/ProbeReport.cs`, `Drivers/` (`BoundAdlPlanner`, `InfPackageFile`, `AmdSignerPin`, `OverdriveRouting`), `Recovery/BaselineJournal.cs`, `IO/AtomicFile.cs`.
+- `LightweightAmdGpuFanControl.Tests/` (**net8.0** xUnit): 161 tests over policy, settings, enablement, the 1.1.0 Core logic and the `--probe` / `--stop` source guards.
 - `external/ADLX/` (submodule): AMD ADLX SDK + C# wrapper. `ManualFanTuning.Reset()` captures/restores pre-app fan state.
 
 ## Local And Hosted Test Commands
@@ -55,13 +64,19 @@ This document is for the next implementation agent (Codex, Claude Code, or human
 ```sh
 # Core unit tests (runnable on macOS/Linux; only .NET 10 runtime here, so roll-forward)
 DOTNET_ROLL_FORWARD=Major dotnet test LightweightAmdGpuFanControl.Tests/LightweightAmdGpuFanControl.Tests.csproj -c Release --nologo
-# → Passed! Failed: 0, Passed: 26
+# → Passed! Failed: 0, Passed: 161
 ```
 
-The WinForms app targets `net8.0-windows` and **cannot be built on macOS/Linux**. Windows compile + installer build happen in CI:
+Local net48 app compile (needs `git submodule update --init external/ADLX`; `AdlxBindPath` may point at any existing file). Expected: 0 errors.
 
 ```sh
-gh run list --branch feature/v1.0-release-readiness --limit 1     # find run
+dotnet build LightweightAmdGpuFanControl/LightweightAmdGpuFanControl.csproj -p:AdlxBindPath=<any existing file> -v:q -nologo
+```
+
+The WinForms app targets `net48`. The local compile above only proves it compiles; nothing can run off Windows. The real Windows build (with the native ADLX binding) and the installer happen in CI:
+
+```sh
+gh run list --branch <branch> --limit 1                           # find run
 gh run view <id> --json status,conclusion,jobs                    # confirm green
 gh run download <id> -n LightweightAmdGpuFanControl-Setup         # get Setup.exe
 ```
@@ -76,6 +91,8 @@ gh run download <id> -n LightweightAmdGpuFanControl-Setup         # get Setup.ex
 
 - **No elevation assumed**: `app.manifest` uses `asInvoker`; installer `PrivilegesRequired=lowest`. **Phase 5 must confirm** fan-set works without admin; if it requires admin, switch manifest to `requireAdministrator` + installer `PrivilegesRequired=admin`.
 - No network calls except user-initiated browser opens to bitworks.io. No telemetry, no secrets.
+- **Library loading (1.1.0):** `atiadlxx.dll` / `amdadlx64.dll` are never loaded by DLL search. They come from the bound driver package in the DriverStore (only when they differ from System32, pass `WinVerifyTrust` and match the signer pin) or from `%windir%\System32` by full path. Signer pin: subject `O=Advanced Micro Devices`, issuer `CN=Sectigo Public Code Signing CA R36`. Pre-loaded modules are never freed. The pre-load never writes, copies or deletes a file. `ADLXCSharpBind.dll` (our own file) still loads from the app directory.
+- `--probe` compiles against a read-only interface (`IFanCapabilitySource`) with no fan setter.
 - Native P/Invoke to AMD driver DLLs (`atiadlxx.dll`, ADLX). Driver-provided DLLs are **not** bundled (loaded from system); only the SWIG binding (`ADLXCSharpBind.dll`) and managed wrapper (`ADLXWrapper.dll`) ship.
 - **Unsigned build** → Windows SmartScreen will warn. Real, gated **Azure Artifact Signing** steps (`azure/login` OIDC + `azure/artifact-signing-action`) are in the workflow but skipped until the `AZURE_*` repo secrets are set; onboarding in [signing-setup.md](signing-setup.md).
 
@@ -84,7 +101,9 @@ gh run download <id> -n LightweightAmdGpuFanControl-Setup         # get Setup.ex
 - Settings at `%LOCALAPPDATA%/Bitworks/LightweightAmdGpuFanControl/settings.json`.
 - Poll interval 2.5 s; tray tooltip + Preferences status refresh from `LatestStatuses` snapshots.
 - **Startup fan blip**: every detected channel (even disabled GPUs) gets a ~4 s self-test at launch that briefly sets 35 % then restores to auto. Accepted for v1.0 so a later-enabled GPU is already validated; most users have one GPU (no blip on absent disabled GPUs).
-- A hard kill (Task Manager/power loss) cannot run restore handlers; the driver reclaims control on reset and the app re-establishes on next launch.
+- A hard kill (Task Manager/power loss) cannot run restore handlers; the driver reclaims control on reset and the app re-establishes on next launch. For ADLX GPUs (1.1.0) the pre-app state is journaled in `baseline.json` and recovered on the next start or by `--restore-auto`.
+- `%LOCALAPPDATA%/Bitworks/LightweightAmdGpuFanControl/` also holds `baseline.json` (restore journal, atomic writes; `baseline.json.bad` if unreadable), `status.json` (only with `--automation`; a reader must match `pid` and `startedUtc`) and `probe-<yyyyMMddTHHmmssZ>.txt` (`--probe`).
+- The uninstaller runs `taskkill /F` then `--restore-auto` (`[UninstallRun]`, before any file is removed); `[UninstallDelete]` removes the data folder afterwards. Copy `log.txt` and `probe-*.txt` out first if they are needed.
 
 ## Commit And Release Guidance
 
@@ -127,6 +146,17 @@ Re-test the fixes above on the RX 7900 XTX, plus the original checklist. Run on 
 7. (If ADL/legacy hardware available) primary-GPU control works via the ADL fallback.
 
 Latest installer for testing: CI run `28686185843` artifact `LightweightAmdGpuFanControl-Setup` (also saved locally at `~/Downloads/LightweightAmdGpuFanControl-v1.0/`).
+
+## 1.1.0 status
+
+- **Implementation: done** and committed on the 1.1.0 branch (plan Tasks 1-9). Core unit tests and the local net48 compile pass; CI is the Windows build and installer gate.
+- **No hardware validation has run.** Declared experiments E1 (read-only probe on an RDNA1 card), E2 (controlled engagement on RDNA1) and E3 (automation-driven regression across generations) are pending approval; none runs before it is approved. Definitions: [plan section 6](superpowers/plans/2026-11-06-rdna1-fan-control.md#6-hardware-validation--declared-experiments).
+- **Release sequence** ([plan section 5](superpowers/plans/2026-11-06-rdna1-fan-control.md#5-release-and-rollout)):
+  1. The implementation PR stays a draft until reviewed, then merges with CI green.
+  2. Ask before the first rc tag. Tag `v1.1.0-rc.1`; CI signs it and publishes a prerelease. Confirm it shows Pre-release and that `releases/latest` is still v1.0.0.
+  3. Run E1, then E2 and E3, each approved first.
+  4. Tag `v1.1.0` on the validated code (or a docs-only commit after it); CI signs it and publishes the latest release. Promoting the final tag is the rollout switch for downstream installs.
+  - `VERSION` stays `1.1.0` for rc tags. Never re-run a failed tag; cut the next rc. Sign in CI only.
 
 ## Context Handoff Hygiene
 

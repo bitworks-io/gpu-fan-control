@@ -3,7 +3,7 @@
 
 #define MyAppName "Lightweight AMD GPU Fan Control"
 #ifndef MyAppVersion
-  #define MyAppVersion "1.0.0"
+  #define MyAppVersion "1.1.0"
 #endif
 #define MyAppPublisher "Bitworks"
 #define MyAppExeName "LightweightAmdGpuFanControl.exe"
@@ -58,6 +58,16 @@ Filename: "{app}\{#MyAppExeName}"; Description: "Launch {#MyAppName}"; Flags: no
 ; Upgrade over a running instance we just force-closed: relaunch unconditionally so fan control
 ; resumes (the forced close skipped the app's fan-restore; leaving the GPU unmanaged is not an option).
 Filename: "{app}\{#MyAppExeName}"; Flags: nowait; Check: ClosedRunningInstance
+
+[UninstallRun]
+; Uninstall must leave the fan on its pre-app curve. Inno runs [UninstallRun] first, before any file is
+; removed, so the exe and baseline.json still exist here; [UninstallDelete] runs afterwards.
+; 1. --stop asks the running app to exit gracefully; that restores every backend, ADL included.
+; 2. taskkill is only a fallback for an app that did not stop (or an older build with no --stop listener).
+; 3. --restore-auto covers ADLX after a kill, from the journal.
+Filename: "{app}\{#MyAppExeName}"; Parameters: "--stop"; Flags: runhidden waituntilterminated; RunOnceId: "StopApp"
+Filename: "{cmd}"; Parameters: "/C taskkill /F /IM {#MyAppExeName}"; Flags: runhidden waituntilterminated; RunOnceId: "KillApp"
+Filename: "{app}\{#MyAppExeName}"; Parameters: "--restore-auto"; Flags: runhidden waituntilterminated; RunOnceId: "RestoreFans"
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{localappdata}\Bitworks\LightweightAmdGpuFanControl"

@@ -9,6 +9,8 @@ If the utility cannot control your AMD GPU fan, try these steps:
 5. Set **Zero RPM** to **OFF**
 6. Click **Apply Changes**
 
+If it still does not work, run `LightweightAmdGpuFanControl.exe --probe` and attach the `probe-*.txt` it writes to `%LOCALAPPDATA%\Bitworks\LightweightAmdGpuFanControl` when you report the problem. The probe is read-only and does not change any fan setting.
+
 For more details, see: https://help.argusmonitor.com/GPUfancontrolforAMDRadeon.html
 
 ## Compatibility

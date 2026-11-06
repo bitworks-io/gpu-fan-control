@@ -1,39 +1,44 @@
 using System.Runtime.InteropServices;
+using LightweightAmdGpuFanControl.Gpu.Native;
 
 namespace LightweightAmdGpuFanControl.Gpu.Adl;
 
 /// <summary>
 /// net48 has no System.Runtime.InteropServices.NativeLibrary (added in .NET Core 3.0). Minimal
-/// LoadLibrary/GetProcAddress/FreeLibrary shim covering the three members AdlNativeApi needs.
+/// load/GetProcAddress/FreeLibrary shim covering the members AdlNativeApi needs. Libraries are
+/// only ever taken from System32 or from an already-loaded module (for example the bound driver
+/// line's copy pre-loaded by BoundAdlPreloader); the DLL search path is never consulted.
 /// </summary>
 internal static class NativeLibrary
 {
-    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
-    private static extern IntPtr LoadLibrary(string lpFileName);
-
-    [DllImport("kernel32.dll", CharSet = CharSet.Ansi, SetLastError = true, BestFitMapping = false, ThrowOnUnmappableChar = true)]
-    private static extern IntPtr GetProcAddress(IntPtr hModule, string procName);
-
-    [DllImport("kernel32.dll", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool FreeLibrary(IntPtr hModule);
-
-    public static bool TryLoad(string libraryPath, out IntPtr handle)
+    public static bool TryLoad(string baseName, out IntPtr handle, out string? error)
     {
-        handle = LoadLibrary(libraryPath);
-        return handle != IntPtr.Zero;
+        error = null;
+
+        // Reuse an already-loaded module; GetModuleHandleEx without the pin/unchanged-refcount
+        // flags takes a reference, so the existing Free stays balanced.
+        if (Win32.GetModuleHandleExW(0, baseName, out handle) && handle != IntPtr.Zero)
+            return true;
+
+        string fullPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "System32", baseName);
+        handle = Win32.LoadLibraryExW(fullPath, IntPtr.Zero, Win32.LOAD_LIBRARY_SEARCH_SYSTEM32);
+        if (handle != IntPtr.Zero)
+            return true;
+
+        error = $"Could not load {fullPath}: Win32 error {Marshal.GetLastWin32Error()}";
+        return false;
     }
 
     public static bool TryGetExport(IntPtr handle, string name, out IntPtr address)
     {
-        address = GetProcAddress(handle, name);
+        address = Win32.GetProcAddress(handle, name);
         return address != IntPtr.Zero;
     }
 
     public static void Free(IntPtr handle)
     {
         if (handle != IntPtr.Zero)
-            FreeLibrary(handle);
+            Win32.FreeLibrary(handle);
     }
 }
 
@@ -91,34 +96,34 @@ internal sealed class AdlNativeApi : IDisposable
     public static bool TryLoad(out AdlNativeApi? api, out string error)
     {
         api = null;
-        foreach (var dll in new[] { "atiadlxx.dll", "atiadlxy.dll" })
+        if (!NativeLibrary.TryLoad("atiadlxx.dll", out var library, out var loadError))
         {
-            if (!NativeLibrary.TryLoad(dll, out var library))
-                continue;
-
-            try
-            {
-                api = new AdlNativeApi(library);
-                var result = api.MainControlCreate(api._memoryAlloc, 1, out api._context);
-                if (result == Ok)
-                {
-                    error = string.Empty;
-                    return true;
-                }
-
-                api.Dispose();
-                error = $"ADL initialization failed with code {result}.";
-                return false;
-            }
-            catch (Exception ex)
-            {
-                NativeLibrary.Free(library);
-                error = ex.Message;
-            }
+            error = loadError ?? "Could not load atiadlxx.dll.";
+            return false;
         }
 
-        error = "Could not load atiadlxx.dll or atiadlxy.dll.";
-        return false;
+        try
+        {
+            api = new AdlNativeApi(library);
+            var result = api.MainControlCreate(api._memoryAlloc, 1, out api._context);
+            if (result == Ok)
+            {
+                error = string.Empty;
+                return true;
+            }
+
+            api.Dispose();
+            api = null;
+            error = $"ADL initialization failed with code {result}.";
+            return false;
+        }
+        catch (Exception ex)
+        {
+            NativeLibrary.Free(library);
+            api = null;
+            error = ex.Message;
+            return false;
+        }
     }
 
     private T? GetDelegate<T>(bool required = true) where T : Delegate

@@ -1,5 +1,6 @@
 using LightweightAmdGpuFanControl.Adlx;
 using LightweightAmdGpuFanControl.Gpu.Adl;
+using LightweightAmdGpuFanControl.Recovery;
 using LightweightAmdGpuFanControl.Services;
 
 namespace LightweightAmdGpuFanControl.Gpu;
@@ -15,9 +16,9 @@ public static class FanControlBackendFactory
     /// Detects supported AMD GPUs and returns a channel set that owns one native session and
     /// one channel per controllable GPU, or null when no supported GPU/driver is available.
     /// </summary>
-    public static FanControlChannelSet? CreateAll(LogService logService)
+    internal static FanControlChannelSet? CreateAll(LogService logService, BaselineJournalSession? journal = null)
     {
-        var adlx = TryCreateAdlxSet(logService);
+        var adlx = TryCreateAdlxSet(logService, journal);
         if (adlx is { HasChannels: true })
             return adlx;
         adlx?.Dispose();
@@ -30,7 +31,7 @@ public static class FanControlBackendFactory
         return null;
     }
 
-    private static FanControlChannelSet? TryCreateAdlxSet(LogService logService)
+    private static FanControlChannelSet? TryCreateAdlxSet(LogService logService, BaselineJournalSession? journal)
     {
         var session = AdlxSession.TryCreate(logService);
         if (session == null)
@@ -38,12 +39,15 @@ public static class FanControlBackendFactory
 
         var channels = new List<IFanControlBackend>();
         int count = session.GpuCount;
+        logService.Log($"ADLX: {count} GPU(s)");
         for (int i = 0; i < count; i++)
         {
-            var channel = AdlxFanControlBackend.TryCreateChannel(session, i, logService);
+            var channel = AdlxFanControlBackend.TryCreateChannel(session, i, logService, journal);
             if (channel != null)
                 channels.Add(channel);
         }
+
+        PruneJournal(session, logService, journal);
 
         if (channels.Count == 0)
         {
@@ -53,6 +57,24 @@ public static class FanControlBackendFactory
         }
 
         return new FanControlChannelSet(channels, session);
+    }
+
+    // Drops journal entries for GPUs that are no longer installed. Skipped entirely if enumeration fails.
+    private static void PruneJournal(AdlxSession session, LogService logService, BaselineJournalSession? journal)
+    {
+        if (journal == null)
+            return;
+        try
+        {
+            var present = session.Monitor.GetAllGpus()
+                .Select(g => new GpuIdentity(g.Name ?? "", g.UniqueId, 0))
+                .ToList();
+            journal.PruneAbsent(present, includeDirty: false); // the tray path never drops a dirty entry
+        }
+        catch (Exception ex)
+        {
+            logService.Log($"journal: GPU enumeration failed; not pruning ({ex.GetType().Name}: {ex.Message})");
+        }
     }
 
     private static FanControlChannelSet? TryCreateAdlSet(LogService logService)

@@ -1,11 +1,18 @@
 using System.Linq;
 using ADLXWrapper;
+using LightweightAmdGpuFanControl.Recovery;
 using LightweightAmdGpuFanControl.Services;
 
 namespace LightweightAmdGpuFanControl.Adlx;
 
 /// <summary>
 /// Controls AMD GPU fan speed via ADLX manual fan tuning.
+/// <para>
+/// Restore: when no usable dirty journal entry exists (always the case without a journal), restoring
+/// calls <c>ManualFanTuning.Reset</c> exactly as v1.0 did. When the journal holds a valid dirty
+/// entry for this GPU (an earlier run stopped uncleanly), the journaled speeds and zero-RPM flag are
+/// applied instead. Journal failures are logged and never block or fail a fan write.
+/// </para>
 /// </summary>
 public sealed class FanController
 {
@@ -19,6 +26,21 @@ public sealed class FanController
     private GPU? _gpu;
     private int _lastLoggedPercent = -1;
     private int _lastAppliedPercent = -1;
+    private BaselineJournalSession? _journal;
+    private GpuIdentity? _identity;
+    private FanBaseline? _baseline;
+    private BaselineSource _source = BaselineSource.Captured;
+    private BaselineChoiceKind _choiceKind = BaselineChoiceKind.NoEntry;
+    private bool _journalDirty;
+
+    /// <summary>Identity of the initialized GPU; null before a successful Initialize or if capture failed.</summary>
+    public GpuIdentity? Identity => _identity;
+
+    /// <summary>Whether restore targets a recovered journal baseline or the wrapper's captured state (v1.0).</summary>
+    public BaselineSource BaselineSource => _source;
+
+    /// <summary>How the restore baseline was chosen; <c>NoEntry</c> when there is no journal.</summary>
+    public BaselineChoiceKind ChoiceKind => _choiceKind;
 
     public FanController(SystemServices systemServices, LogService? log = null)
     {
@@ -54,21 +76,131 @@ public sealed class FanController
         gpu ??= _systemServices.GetGPUs().FirstOrDefault();
         if (gpu == null) return false;
 
+        return Initialize(gpu, out _);
+    }
+
+    /// <summary>As <see cref="Initialize(GPU?)"/>, reporting why a GPU was not usable.</summary>
+    public bool Initialize(GPU gpu, out string? reason) => Initialize(gpu, out reason, null);
+
+    /// <summary>
+    /// As above, also capturing the pre-app fan state and consulting <paramref name="journal"/> for a
+    /// dirty entry left by an unclean stop. Journal handling never affects the result.
+    /// </summary>
+    internal bool Initialize(GPU gpu, out string? reason, BaselineJournalSession? journal)
+    {
+        reason = null;
         try
         {
             _tuningService ??= _systemServices.GetGPUTuningService();
             if (!_tuningService.IsManualFanTuningSupported(gpu))
+            {
+                reason = "manual fan tuning not supported";
                 return false;
+            }
 
             _manualFanTuning = _tuningService.GetManualFanTuning(gpu);
             _gpu = gpu;
-            return _manualFanTuning != null;
+            if (_manualFanTuning == null)
+                return false;
+
+            try
+            {
+                CaptureBaseline(gpu, journal);
+            }
+            catch (Exception ex)
+            {
+                _log?.Log($"[fan] journal disabled for '{gpu.Name}': {ex.GetType().Name}: {ex.Message}");
+                _journal = null;
+                _source = BaselineSource.Captured;
+                _choiceKind = BaselineChoiceKind.NoEntry;
+                _baseline = null;
+                _identity = null;
+                _journalDirty = false;
+            }
+            return true;
         }
-        catch
+        catch (Exception ex)
         {
             _manualFanTuning = null;
             _gpu = null;
+            reason = $"{ex.GetType().Name}: {ex.Message}";
             return false;
+        }
+    }
+
+    private void CaptureBaseline(GPU gpu, BaselineJournalSession? journal)
+    {
+        var speeds = _manualFanTuning!.GetCurrentState();
+        bool zeroSupported = _manualFanTuning.SupportsZeroRPM;
+        bool zeroRpm = zeroSupported && _manualFanTuning.GetZeroRPMState();
+        var captured = new FanBaseline(speeds, zeroSupported, zeroRpm);
+        var identity = new GpuIdentity(gpu.Name ?? "", gpu.UniqueId, speeds.Length);
+
+        if (journal == null)
+        {
+            _identity = identity;
+            _baseline = captured;
+            _source = BaselineSource.Captured;
+            _choiceKind = BaselineChoiceKind.NoEntry;
+            _journal = null;
+            _journalDirty = false;
+            return;
+        }
+
+        var choice = journal.Choose(identity, captured);
+        _identity = identity;
+        _baseline = choice.Baseline;
+        _source = choice.Source;
+        _choiceKind = choice.Kind;
+        _journal = journal;
+        // A recovered entry is already dirty on disk.
+        _journalDirty = choice.Source == BaselineSource.Journal;
+    }
+
+    /// <summary>
+    /// Releases manual control. With a recovered journal baseline: zero-RPM first, then the journaled
+    /// speeds (the same order as <c>Reset</c>); if the driver rejects that, falls back to <c>Reset</c> and
+    /// returns false (the journaled state was NOT applied exactly). Otherwise exactly the v1.0 <c>Reset</c>,
+    /// returning true. A <c>Reset</c> exception propagates.
+    /// </summary>
+    private bool ApplyBaseline()
+    {
+        if (_source == BaselineSource.Journal && _baseline != null)
+        {
+            try
+            {
+                if (_manualFanTuning!.SupportsZeroRPM)
+                    _manualFanTuning.SetZeroRPM(_baseline.ZeroRpm);
+                _manualFanTuning.SetFanTuningStates(_baseline.Speeds.ToArray());
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _log?.Log($"[fan] journal restore rejected ({ex.GetType().Name}: {ex.Message}); falling back to Reset");
+                _manualFanTuning!.Reset();
+                return false;
+            }
+        }
+
+        _manualFanTuning!.Reset();
+        return true;
+    }
+
+    /// <summary>Records the pre-app baseline as dirty before the first write of this run. Never throws.</summary>
+    private void MarkDirtyBeforeFirstWrite()
+    {
+        try
+        {
+            if (_journal != null && !_journalDirty && _identity != null && _baseline != null)
+            {
+                // Flag first so a failed save is not retried on every write (the session logs it).
+                _journalDirty = true;
+                _journal.MarkDirty(_identity, _baseline);
+            }
+        }
+        catch (Exception ex)
+        {
+            _log?.Log($"[fan] journal mark-dirty failed: {ex.GetType().Name}: {ex.Message}");
         }
     }
 
@@ -86,6 +218,8 @@ public sealed class FanController
 
         try
         {
+            MarkDirtyBeforeFirstWrite();
+
             // The AMD driver latches the manual fan setpoint at the highest value set since manual
             // control was last released: writing a LOWER fan curve is accepted (the read-back
             // confirms it) but the fan does NOT ramp down until control is released. So when the
@@ -96,7 +230,7 @@ public sealed class FanController
             bool releasedForDecrease = _lastAppliedPercent >= 0 && percent < _lastAppliedPercent;
             if (releasedForDecrease)
             {
-                try { _manualFanTuning.Reset(); } catch { /* best-effort release before re-apply */ }
+                try { ApplyBaseline(); } catch { /* best-effort release before re-apply */ }
             }
 
             if (_manualFanTuning.SupportsZeroRPM)
@@ -160,19 +294,34 @@ public sealed class FanController
     }
 
     /// <summary>
-    /// Returns the fan to the driver's automatic curve by resetting the manual fan tuning to the
-    /// state captured when this controller was initialized (i.e. the pre-app curve). Best-effort.
+    /// Returns the fan to its pre-app state: the recovered journal baseline if one was adopted at
+    /// Initialize, otherwise the state captured by the wrapper (v1.0 <c>Reset</c>). Best-effort.
     /// </summary>
-    public void RestoreAutomatic()
+    public void RestoreAutomatic() => TryRestoreAutomatic();
+
+    /// <summary>
+    /// As <see cref="RestoreAutomatic"/>, reporting success. The journal entry is marked clean only
+    /// after the restore was applied exactly (a journal restore that fell back to <c>Reset</c> returns
+    /// false and leaves the entry dirty). Never throws.
+    /// </summary>
+    public bool TryRestoreAutomatic()
     {
+        if (_manualFanTuning == null) return false;
         try
         {
-            _manualFanTuning?.Reset();
+            bool exact = ApplyBaseline();
             _lastAppliedPercent = -1; // control released; the next Set starts a fresh latch
+            if (exact && _journalDirty && _journal != null && _identity != null)
+            {
+                _journal.MarkClean(_identity);
+                _journalDirty = false;
+            }
+            return exact;
         }
         catch
         {
-            // Best-effort: nothing else we can do if the driver rejects the reset.
+            // Best-effort: nothing else we can do if the driver rejects the restore.
+            return false;
         }
     }
 }

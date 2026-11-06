@@ -1,10 +1,19 @@
 using System.Threading;
 using System.Windows.Forms;
+using LightweightAmdGpuFanControl.Automation;
 using LightweightAmdGpuFanControl.Control;
 using LightweightAmdGpuFanControl.Gpu;
+using LightweightAmdGpuFanControl.Gpu.Native;
 using LightweightAmdGpuFanControl.Models;
 
 namespace LightweightAmdGpuFanControl.Services;
+
+/// <summary>Result of the startup self-tests: whether any channel passed, and which passing channels are enabled in settings.</summary>
+public sealed class StartupOutcome
+{
+    public bool AnyPassed { get; init; }
+    public IReadOnlyList<StatusGpu> PassedEnabled { get; init; } = Array.Empty<StatusGpu>();
+}
 
 /// <summary>
 /// Polls each enabled GPU's temperature and applies the <see cref="FanControlPolicy"/> decision,
@@ -24,6 +33,7 @@ public class FanControlService
 
     private readonly SettingsService _settingsService;
     private readonly LogService _logService;
+    private readonly bool _automation;
     private readonly FanControlTestService _fanControlTest = new();
     private readonly FanControlPolicy _policy = new();
     private readonly object _controlLock = new();
@@ -43,11 +53,18 @@ public class FanControlService
     private volatile bool _warnedContention;
     private volatile IReadOnlyList<string> _activeMonitors = Array.Empty<string>();
 
-    public FanControlService(SettingsService settingsService, LogService logService)
+    public FanControlService(SettingsService settingsService, LogService logService, bool automation = false)
     {
         _settingsService = settingsService;
         _logService = logService;
+        _automation = automation;
     }
+
+    /// <summary>
+    /// Raised once the startup self-tests have finished (not when the service is disposed first), on a
+    /// background thread. Reports whether any channel passed and which passing channels are enabled.
+    /// </summary>
+    public event Action<StartupOutcome>? StartupTestsCompleted;
 
     /// <summary>Live per-GPU snapshot for the UI. Empty until the first post-test poll.</summary>
     public IReadOnlyList<GpuStatus> LatestStatuses => _latestStatuses;
@@ -64,15 +81,23 @@ public class FanControlService
     /// <summary>Display names of currently detected third-party GPU monitoring tools.</summary>
     public IReadOnlyList<string> ActiveMonitors => _activeMonitors;
 
-    public void Start(SystrayApplicationContext context, NotifyIcon notifyIcon)
+    /// <returns>False when no fan-control backend could be initialised.</returns>
+    public bool Start(SystrayApplicationContext context, NotifyIcon notifyIcon)
     {
         _uiContext = SynchronizationContext.Current;
         _notifyIcon = notifyIcon;
-        _channelSet = FanControlBackendFactory.CreateAll(_logService);
+        BoundAdlPreloader.Run(_logService);
+        var journal = BaselineJournalSession.Open(AppPaths.BaselinePath, _logService);
+        _channelSet = FanControlBackendFactory.CreateAll(_logService, journal);
+        WarnOnMixedDriverLine();
+        LogLoadedModule("atiadlxx.dll");
+        LogLoadedModule("amdadlx64.dll");
 
         if (_channelSet == null || !_channelSet.HasChannels)
         {
             _logService.Log("No AMD fan-control backend could be initialized.");
+            if (_automation)
+                return false; // unattended: no balloon, no modal dialog
             notifyIcon.BalloonTipClicked += (_, _) => OpenHelp();
             notifyIcon.ShowBalloonTip(5000, "Lightweight AMD GPU Fan Control",
                 "Could not initialize AMD fan control. No supported AMD GPU, driver, or tuning API was found.", ToolTipIcon.Warning);
@@ -81,7 +106,7 @@ public class FanControlService
                 "AMD fan control unavailable",
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Warning);
-            return;
+            return false;
         }
 
         _channels = _channelSet.Channels.Select(b => new ControlChannel(b)).ToList();
@@ -93,6 +118,38 @@ public class FanControlService
         System.Threading.Tasks.Task.Run(RunStartupTests);
 
         _timer = new System.Threading.Timer(_ => PollAndAdjust(), null, 1000, NormalPollIntervalMs);
+        return true;
+    }
+
+    // Logs only; control is never refused because of a mixed driver line.
+    private void WarnOnMixedDriverLine()
+    {
+        try
+        {
+            foreach (var m in LoadedAmdModules.Snapshot())
+            {
+                if (m.MixedLine)
+                    _logService.Log($"WARNING: mixed AMD driver line loaded: {m.Name} from {m.Path} (version {m.Version ?? "unknown"})");
+            }
+        }
+        catch
+        {
+            // diagnostics only
+        }
+    }
+
+    private void LogLoadedModule(string name)
+    {
+        try
+        {
+            var path = Win32.ModulePath(name);
+            var version = path != null ? Win32.BinaryVersion(path) : null;
+            _logService.Log($"module {name}: {path ?? "not loaded"} {version ?? ""}".TrimEnd());
+        }
+        catch
+        {
+            // diagnostics only
+        }
     }
 
     /// <summary>Reconcile detected GPUs into settings so the UI has entries to toggle.</summary>
@@ -122,12 +179,13 @@ public class FanControlService
         }
 
         _testsComplete = true;
+        if (_disposed) return;
 
         if (!anyPassed)
         {
             _logService.Log("Startup fan control test failed on all channels.");
             var icon = _notifyIcon;
-            if (icon != null)
+            if (icon != null && !_automation)
             {
                 PostToUi(() =>
                 {
@@ -137,6 +195,33 @@ public class FanControlService
                         ToolTipIcon.Warning);
                 });
             }
+        }
+
+        var passedEnabled = new List<StatusGpu>();
+        try
+        {
+            var detectedIds = _channels.Select(c => c.Backend.GpuId).ToList();
+            var enabledIds = new HashSet<string>(GpuEnablement.Reconcile(detectedIds, _settingsService.Load())
+                .Where(g => g.Enabled)
+                .Select(g => g.GpuId));
+            foreach (var channel in _channels)
+            {
+                if (channel.TestPassed && enabledIds.Contains(channel.Backend.GpuId))
+                    passedEnabled.Add(new StatusGpu { Name = channel.Backend.AdapterName, Backend = channel.Backend.BackendName });
+            }
+        }
+        catch (Exception ex)
+        {
+            _logService.Log("Could not determine which passing GPUs are enabled.", ex);
+        }
+
+        try
+        {
+            StartupTestsCompleted?.Invoke(new StartupOutcome { AnyPassed = anyPassed, PassedEnabled = passedEnabled });
+        }
+        catch (Exception ex)
+        {
+            _logService.Log("Startup-test completion handler failed.", ex);
         }
     }
 

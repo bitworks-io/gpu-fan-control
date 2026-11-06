@@ -129,3 +129,7 @@ jobs:
         with:
           files: ./release/LightweightAmdGpuFanControl-Setup.exe
           generate_release_notes: true
+          # A hyphenated tag (v1.1.0-rc.1) is a prerelease and must never become "latest":
+          # downstream automation installs whatever releases/latest points at.
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          make_latest: ${{ !contains(github.ref_name, '-') && 'true' || 'false' }}

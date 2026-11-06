@@ -26,6 +26,25 @@ the rest. Everything below is the discipline around that one action.
 The `build` job builds the installer **fresh from the tagged commit** — the release
 binary is not any previously-downloaded artifact.
 
+### Release candidates (`vX.Y.Z-rc.N`)
+
+- **Tags containing a hyphen are published as GitHub prereleases** and never become
+  "latest": the `release` step sets `prerelease` and `make_latest` from
+  `contains(github.ref_name, '-')`.
+  - This matters because downstream installers follow `releases/latest`, and a bare
+    tag *is* the rollout switch.
+  - Check after every rc tag that the release shows **Pre-release** and that
+    `releases/latest` did not move.
+- **`VERSION` keeps the final number on rc tags** (`1.1.0` for `v1.1.0-rc.N`), so an
+  rc installs as file version `1.1.0.0`.
+  - Installers that compare file versions will not replace an rc with the final.
+    Tag the final **on the validated rc's code**, or on a docs-only commit after it.
+  - If code changes after validation, cut a new rc instead.
+- **Before uninstalling an rc,** copy `log.txt`, `probe-*.txt` and `status.json` out of
+  `%LOCALAPPDATA%\Bitworks\LightweightAmdGpuFanControl` first. The uninstaller
+  deletes that folder.
+- **Never re-run a failed tag;** cut the next rc.
+
 ---
 
 ## Preconditions (ALL must be true before tagging)

@@ -6,7 +6,7 @@ This document is for the next implementation agent (Codex, Claude Code, or human
 
 ## Project Purpose
 
-**Lightweight AMD GPU Fan Control** is a per-user Windows systray utility (.NET 8 WinForms, `OutputType=WinExe` — not a service) that drives AMD Radeon GPU fans toward a **core (edge) temperature target** (default 65 °C). It exists because AMD Adrenalin's fan curve UI is heavy and awkward; this tool gives a lightweight always-on curve with a safe restore-to-automatic lifecycle. Publisher: Bitworks (bitworks.io).
+**Lightweight AMD GPU Fan Control** is a per-user Windows systray utility (.NET Framework 4.8 WinForms, `OutputType=WinExe` — not a service) that drives AMD Radeon GPU fans toward a **core (edge) temperature target** (default 65 °C). It exists because AMD Adrenalin's fan curve UI is heavy and awkward; this tool gives a lightweight always-on curve with a safe restore-to-automatic lifecycle. Publisher: Bitworks (bitworks.io).
 
 ## Current Feature Set
 
@@ -41,7 +41,7 @@ This document is for the next implementation agent (Codex, Claude Code, or human
   - `Control/GpuEnablement.cs`: pure `Reconcile(detectedIds, settings) → IReadOnlyList<GpuConfig>` (primary default-on, new GPUs opt-in, saved prefs respected).
   - `Models/AppSettings.cs`: settings + all range constants. `Services/SettingsService.cs`: load/save + `Validate` clamps; **caches**, so a shared instance applies UI changes live to the poll loop.
   - `AppLinks.cs`: `ContactFormUrl`, `WebsiteUrl`, `FanHelpUrl`, `Open(url)`.
-- `LightweightAmdGpuFanControl/` (**net8.0-windows** WinForms app):
+- `LightweightAmdGpuFanControl/` (**net48** WinForms app):
   - `Gpu/FanControlBackendFactory.cs`: `CreateAll(log) → FanControlChannelSet?`. Prefers ADLX (all GPUs), falls back to ADL (primary only). Never mixes families.
   - `Gpu/FanControlChannelSet.cs`: **owns the single native session** + per-GPU channels; Dispose restores every channel then tears down the session (order matters).
   - `Adlx/AdlxSession.cs`: owns one ADLX init + shared `SystemServices` + `GpuMonitor`. `Gpu/AdlxFanControlBackend.cs`: a **borrowing channel** per GPU (owns only its `FanController`, never the session).
@@ -73,10 +73,10 @@ Local net48 app compile (needs `git submodule update --init external/ADLX`; `Adl
 dotnet build LightweightAmdGpuFanControl/LightweightAmdGpuFanControl.csproj -p:AdlxBindPath=<any existing file> -v:q -nologo
 ```
 
-The WinForms app targets `net8.0-windows` and **cannot be built on macOS/Linux**. Windows compile + installer build happen in CI:
+The WinForms app targets `net48`. The local compile above only proves it compiles; nothing can run off Windows. The real Windows build (with the native ADLX binding) and the installer happen in CI:
 
 ```sh
-gh run list --branch feature/v1.0-release-readiness --limit 1     # find run
+gh run list --branch <branch> --limit 1                           # find run
 gh run view <id> --json status,conclusion,jobs                    # confirm green
 gh run download <id> -n LightweightAmdGpuFanControl-Setup         # get Setup.exe
 ```

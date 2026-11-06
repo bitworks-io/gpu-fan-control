@@ -24,7 +24,7 @@ DOTNET_ROLL_FORWARD=Major dotnet test LightweightAmdGpuFanControl.Tests/Lightwei
 ```
 
 ```sh
-# Windows build + installer (CI only; app is net8.0-windows)
+# Windows build + installer (CI only; app is net48)
 gh run view <run-id> --json status,conclusion,jobs
 gh run download <run-id> -n LightweightAmdGpuFanControl-Setup
 ```

@@ -39,6 +39,10 @@ target — a simpler, always-on alternative to the AMD Adrenalin fan-curve UI.
   Pause/Resume from the tray.
 - **Restore-to-automatic on exit** — every graceful shutdown path hands
   control back to the driver's automatic fan management.
+- **RDNA1 (RX 5700 / 5600 series) support, pending hardware validation** — when the
+  bound AMD driver package's ADL/ADLX differs from System32's, the app loads the
+  bound package's own AMD-signed copies. Read-only `--probe` and unattended
+  `--automation` modes are included; see [Command-line options](#command-line-options).
 - **Start with Windows** — optional, per-user (no admin required).
 - **Preferences window** — target temp, min/max fan, per-GPU enablement,
   live status readout.
@@ -103,6 +107,66 @@ Inno Setup installer under `output\`. See `docs/WINDOWS_BUILD.md` for
 Windows VM / Apple Silicon / CI build guidance, and
 `docs/AMD_COMPATIBILITY.md` for GPU-generation and startup-test notes.
 
+## Command-line options
+
+Arguments are case-insensitive. Unknown arguments are logged and ignored.
+
+| Invocation | Behaviour | Exit codes |
+|---|---|---|
+| *(no arguments)* | Interactive tray app | `0` |
+| `--automation [--status-file <fullpath>]` | Tray app with no modal dialogs; writes `status.json` | `0` graceful exit · `3` unavailable · `4` already running |
+| `--probe [--no-preload]` | Read-only capability report; no window, no fan writes | `0` controllable GPU · `3` none · `4` app running · `1` error |
+| `--restore-auto` | One-shot restore of the journaled pre-app fan state | `0` restored · `3` nothing to restore · `4` app running · `1` error |
+
+Exit `2` is a usage error (no UI): `--probe` with `--restore-auto`, or `--no-preload`
+without `--probe`. `--automation` combined with `--probe` or `--restore-auto` is accepted.
+
+Files are written to `%LOCALAPPDATA%\Bitworks\LightweightAmdGpuFanControl`:
+`log.txt`, `probe-<yyyyMMddTHHmmssZ>.txt` (`--probe`), `status.json` (`--automation`)
+and `baseline.json`.
+
+### `status.json`
+
+Written atomically, camelCase, schema `1`; readers must ignore unknown fields.
+
+| Field | Meaning |
+|---|---|
+| `schema` | `1` |
+| `state` | `starting`, `engaged`, `unavailable` or `stopped` |
+| `engaged` | `true` only when `state` is `engaged` |
+| `reason` | `null`, `no-backend`, `self-test-failed` or `exit` |
+| `gpu`, `backend` | First GPU that passed the start-up self-test (`null` unless engaged) |
+| `gpus` | Every GPU that passed, as `{ "name", "backend" }` |
+| `pid`, `startedUtc` | The writing process |
+| `updatedUtc` | Time of this write |
+| `version` | App version |
+
+Sequence: `starting` once the single-instance mutex is held; `unavailable` with
+`no-backend` (no backend initialised) or `self-test-failed` (self-test failed on every
+channel), then exit `3`; `engaged` when the self-test passes on at least one channel;
+`stopped` with `exit` on a graceful exit. When another instance is running the app
+exits `4` and leaves `status.json` untouched.
+
+A forced kill leaves the last state on disk. **A reader must match `pid` and
+`startedUtc` against the process it launched** before trusting the file.
+
+`--status-file <fullpath>` writes the status file there instead of the default.
+The path must start with a drive letter (no UNC, no relative path, no `.` or `..`
+segment, no illegal characters), its folder must exist, and neither the folder nor the
+file may be a reparse point. A missing or invalid value is logged and the default
+path is used; it never stops the app.
+
+### `--restore-auto`
+
+After a forced stop, crash or power loss the driver can keep the app's manual fan
+curve. While controlling a GPU through ADLX the app records the pre-app per-state
+fan speeds and Zero RPM state in `baseline.json` and marks the entry dirty before
+its first fan write. `--restore-auto` puts every GPU with a matching dirty entry back on
+that recorded state and marks the entry clean. It exits `4` if the app is running and
+`3` without loading any AMD library when no entry is dirty. The installer runs it on
+uninstall. ADL fallback adapters are not journaled. A corrupt `baseline.json` is set
+aside as `baseline.json.bad` and ignored; it never blocks fan control.
+
 ## Troubleshooting: "Fan Control Not Working?"
 
 1. Open **AMD Software: Adrenalin Edition** → **Performance** → **Tuning**.
@@ -112,6 +176,8 @@ Windows VM / Apple Silicon / CI build guidance, and
    Preferences.
 5. If it's still not working, check the log at
    `%LOCALAPPDATA%\Bitworks\LightweightAmdGpuFanControl\log.txt` for errors.
+6. When reporting a problem, run `LightweightAmdGpuFanControl.exe --probe` and attach the
+   `probe-*.txt` from `%LOCALAPPDATA%\Bitworks\LightweightAmdGpuFanControl`.
 
 ## Reporting Issues
 

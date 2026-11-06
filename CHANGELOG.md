@@ -4,6 +4,54 @@ All notable changes to **Lightweight AMD GPU Fan Control** are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] — Unreleased
+
+RDNA1 (RX 5700 / 5600 series) support, read-only diagnostics, an unattended
+mode, and a journal that restores the pre-app fan state after an unclean stop.
+Not validated on hardware yet.
+
+### Fixed
+
+- **RDNA1 cards (RX 5700 / 5600 series) on machines whose System32 ADL/ADLX comes from a
+  different AMD driver line than the one bound to the card.** ADLX opened but reported no GPU
+  with manual fan tuning, and the ADL fallback found no fan interface. The app now loads the
+  bound package's own `atiadlxx.dll` / `amdadlx64.dll` (see Changed).
+- **Fan state left behind after a forced stop, crash or uninstall.** The pre-app fan state is
+  journaled to `baseline.json`; the next start (or `--restore-auto`) returns to it instead of
+  re-applying the killed run's manual curve. ADLX only.
+
+### Added
+
+- `--probe [--no-preload]`: read-only capability report written to `log.txt` and
+  `probe-<yyyyMMddTHHmmssZ>.txt`. No window, no fan writes. Exit `0` controllable GPU,
+  `3` none, `4` app running, `1` error.
+- `--automation [--status-file <fullpath>]`: no modal dialogs; writes `status.json`
+  (`starting`, `engaged`, `unavailable`, `stopped`) with `pid` and `startedUtc`. Exit `3` when
+  unavailable, `4` when another instance is running.
+- `--restore-auto`: one-shot restore of the journaled pre-app fan state. Exit `0` restored,
+  `3` nothing to restore, `4` app running, `1` error.
+- Start-up diagnostics in `log.txt`: ADLX init result, GPU count, per-GPU manual-tuning result,
+  ADL Overdrive caps and version, and the path and version of each loaded `ati*` / `amd*` module.
+- Usage errors exit `2`: `--probe` with `--restore-auto`, or `--no-preload` without `--probe`.
+  Unknown arguments are logged and ignored.
+
+### Changed
+
+- **ADL/ADLX loading.** When the bound driver package ships `atiadlxx.dll` and `amdadlx64.dll`
+  that differ from System32 and are AMD-signed, both are loaded from the package by full path
+  before ADLX/ADL start. If anything is uncertain, v1.0 behaviour is kept. Nothing loads by
+  DLL search.
+- **Overdrive8 adapters no longer use the ADL fan path.** Only Overdrive 7 reaches OverdriveN
+  (unchanged, including CustomFan) and Overdrive 5 reaches Overdrive5. Overdrive 8 is ADLX-only.
+- **The uninstaller restores the pre-app fan state** (`--restore-auto`) before removing files.
+
+### Security
+
+- No DLL search-path loading for `atiadlxx.dll` / `amdadlx64.dll`: when no bound pre-load
+  applies, the System32 copies are loaded by full path.
+- DriverStore copies must pass `WinVerifyTrust` and match the AMD signer pin (subject
+  `O=Advanced Micro Devices`, issuer `CN=Sectigo Public Code Signing CA R36`) before they load.
+
 ## [1.0.0] — 2026-07-13
 
 First public release. A per-user Windows systray utility (.NET Framework 4.8
@@ -95,4 +143,5 @@ fan-curve UI. Publisher: Bitworks (bitworks.io).
 - No network calls except user-initiated browser opens to bitworks.io. No telemetry,
   no secrets.
 
+[1.1.0]: https://github.com/bitworks-io/gpu-fan-control/compare/v1.0.0...main
 [1.0.0]: https://github.com/bitworks-io/gpu-fan-control/releases/tag/v1.0.0

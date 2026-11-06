@@ -33,6 +33,8 @@ public sealed class ProbeModule
     public string Name { get; set; } = "";
     public string Path { get; set; } = "";
     public string? Version { get; set; }
+    /// <summary>Loaded from outside the bound driver package while that package ships a same-named file.</summary>
+    public bool MixedLine { get; set; }
 }
 
 /// <summary>Read-only capability report for <c>--probe</c>: pure model plus plain-text formatter.</summary>
@@ -45,6 +47,8 @@ public sealed class ProbeReport
     public List<ProbeGpu> Gpus { get; } = new();
     public List<ProbeAdlAdapter> AdlAdapters { get; } = new();
     public List<ProbeModule> Modules { get; } = new();
+
+    public bool HasMixedModules => Modules.Any(m => m.MixedLine);
 
     /// <summary>0 when at least one GPU supports manual fan tuning, else 3.</summary>
     public int ExitCode => Gpus.Any(g => g.ManualFanTuningSupported) ? 0 : 3;
@@ -74,7 +78,8 @@ public sealed class ProbeReport
             sb.AppendLine($"  adapter {a.Index} capsRc={a.CapsResult} supported={a.Supported} enabled={a.Enabled} version={a.Version} family={a.Family}");
         sb.AppendLine($"modules: {Modules.Count}");
         foreach (var m in Modules)
-            sb.AppendLine($"  {m.Name} {m.Path} version={m.Version ?? "unknown"}");
+            sb.AppendLine($"  {m.Name} {m.Path} version={m.Version ?? "unknown"}{(m.MixedLine ? " MIXED-LINE" : "")}");
+        if (HasMixedModules) sb.AppendLine("WARNING: mixed AMD driver line loaded");
         return RedactUserProfile(sb.ToString());
     }
 

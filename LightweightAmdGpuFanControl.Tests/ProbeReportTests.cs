@@ -52,4 +52,29 @@ public class ProbeReportTests
         Assert.DoesNotContain(@"\x\", text);
         Assert.DoesNotContain("users", text, StringComparison.OrdinalIgnoreCase);
     }
+
+    [Fact]
+    public void Format_MixedModule_Flagged()
+    {
+        var r = Report(true);
+        r.Modules.Add(new ProbeModule { Name = "atiadlxx.dll", Path = @"C:\Windows\System32\atiadlxx.dll", Version = "1", MixedLine = true });
+        r.Modules.Add(new ProbeModule { Name = "amdadlx64.dll", Path = @"C:\Windows\System32\amdadlx64.dll", Version = "1" });
+        Assert.True(r.HasMixedModules);
+        var text = r.Format();
+        Assert.Contains("WARNING: mixed AMD driver line loaded", text);
+        var lines = text.Split('\n');
+        Assert.EndsWith(" MIXED-LINE", lines.Single(l => l.Contains("atiadlxx.dll")).TrimEnd());
+        Assert.DoesNotContain("MIXED-LINE", lines.Single(l => l.Contains("amdadlx64.dll")));
+        Assert.Equal(0, r.ExitCode);
+    }
+
+    [Fact]
+    public void HasMixedModules_FalseWhenNone()
+    {
+        var r = Report(true);
+        r.Modules.Add(new ProbeModule { Name = "atiadlxx.dll", Path = @"C:\x\atiadlxx.dll" });
+        Assert.False(r.HasMixedModules);
+        Assert.DoesNotContain("WARNING", r.Format());
+        Assert.DoesNotContain("MIXED-LINE", r.Format());
+    }
 }

@@ -4,10 +4,10 @@ using System.Text.Json.Serialization;
 
 namespace LightweightAmdGpuFanControl.Recovery;
 
-/// <summary>Identity of one ADLX GPU. UniqueId is part of the key so two identical cards do not collide.</summary>
+/// <summary>Identity of one ADLX GPU. The key is Name + UniqueId (two identical cards do not collide); StateCount is validated separately.</summary>
 public sealed record GpuIdentity(string Name, int UniqueId, int StateCount)
 {
-    public string Key => $"{Name}|{UniqueId}|{StateCount}";
+    public string Key => $"{Name}|{UniqueId}";
 }
 
 /// <summary>Pre-app fan state: per-tuning-state speeds plus the zero-RPM flag.</summary>
@@ -135,6 +135,7 @@ public static class BaselinePlanner
         if (entry == null) return Captured("no journal entry");
         if (!entry.Dirty) return Captured("journal entry is clean");
         if (!string.Equals(entry.Key, id.Key, StringComparison.Ordinal)) return Captured("journal entry identity differs");
+        if (entry.StateCount != id.StateCount) return Captured("journal tuning-state count differs");
         if (entry.Speeds == null || entry.Speeds.Length != id.StateCount)
             return Captured("journal speed count does not match the tuning-state count");
         if (entry.Speeds.Any(s => s < 0 || s > 100)) return Captured("journal speed outside 0..100");

@@ -93,7 +93,7 @@ public class BaselineJournalTests
         var e = j.Find(Id())!;
         Assert.True(e.Dirty);
         Assert.True(j.HasDirty);
-        Assert.Equal("GPU A|1|5", e.Key);
+        Assert.Equal("GPU A|1", e.Key);
         Assert.Equal("GPU A", e.Name);
         Assert.Equal(1, e.UniqueId);
         Assert.Equal(5, e.StateCount);
@@ -115,6 +115,30 @@ public class BaselineJournalTests
         Assert.False(j.Find(Id())!.Dirty);
         Assert.False(j.HasDirty);
         Assert.False(j.MarkClean(Id("other")));
+    }
+
+    [Fact]
+    public void Journal_SameGpuNewStateCount_ReplacesEntry()
+    {
+        var j = new BaselineJournal();
+        j.MarkDirty(Id(states: 5), Base(1, 2, 3, 4, 5), T);
+        j.MarkDirty(Id(states: 3), Base(7, 8, 9), T);
+        Assert.Single(j.Entries);
+        var e = j.Find(Id(states: 3))!;
+        Assert.Equal(3, e.StateCount);
+        Assert.Equal(new[] { 7, 8, 9 }, e.Speeds);
+        Assert.Same(e, j.Find(Id(states: 5)));
+    }
+
+    [Fact]
+    public void Choose_EntryStateCountMismatch_Captured()
+    {
+        var e = Dirty(Id(states: 5));
+        var c = BaselinePlanner.Choose(Id(states: 3), new FanBaseline(new[] { 1, 2, 3 }, true, false), e);
+        Assert.Equal(BaselineSource.Captured, c.Source);
+        // matching speeds length but stale StateCount on the entry is also refused
+        e.StateCount = 4;
+        Assert.Equal(BaselineSource.Captured, BaselinePlanner.Choose(Id(states: 5), Captured(), e).Source);
     }
 
     [Fact]

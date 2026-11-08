@@ -226,6 +226,41 @@ The remaining steps run against the test card after the owner's AMD Software res
 - [ ] `ProbeReportTests` for the new lines, then the implementation in `CapabilityProbe` (`IsAtFactory` is read-only).
 - [ ] Commit.
 
+### Task 5b: `--reset-tuning-to-factory --gpu <uniqueId>` (amendment, approved by the lead 2026-11-08)
+
+Purpose: return one named GPU's tuning to factory on demand. It covers GPUs left under manual tuning by v1.0, rc.1 or rc.2, whose journal entries (legacy, `preAppAtFactory` null) rc.3's own restore treats as points plus a hint (D3).
+
+**Files:**
+- Modify: `Core/Cli/LaunchOptions.cs` (new `LaunchMode.ResetTuningToFactory`, plus `--gpu <int>`, required by it and rejected otherwise).
+- Create: `Core/Cli/FactoryResetOutcome.cs` (the pure mapping to an exit code).
+- Create: `Services/FactoryResetCommand.cs` (app).
+- Modify: `Program.cs` (dispatch).
+- Modify: the help/usage text and README.
+- Tests: `LaunchOptionsTests`, `FactoryResetOutcomeTests`, `FactoryResetSourceGuardTests`.
+
+**Behaviour:**
+- **Explicit GPU only.** There is no all-GPUs form.
+- **It refuses with:**
+  - exit 4 if an instance holds the single-instance lock (the same `SingleInstance.TryAcquire` wait as `--restore-auto`);
+  - exit 1 if the GPU with that `uniqueId` isn't found, or `IsSupportedManualFanTuning` is false.
+- **ADLX setup** is the same bound-DLL pre-load and ADLX init path as `--restore-auto` and `--probe`.
+- **Order:**
+  1. Log `IsAtFactory` before. If it is true, exit 3 (already at factory) and write nothing.
+  2. Call `ResetToFactory`.
+  3. Log `IsAtFactory` after. True gives exit 0; false or an exception gives exit 1.
+- **Journal:** only on exit 0, that GPU's dirty LEGACY entry (`preAppAtFactory` null) is marked clean. No other journal change.
+- **Help text and README say plainly:** "resets ALL of this GPU's tuning (clock, VRAM, power and fan) to factory settings, not only the fan" (D2).
+- **The probe afterwards** reads `tuningAtFactory=yes`.
+
+**Tests:**
+- Parsing: `--gpu` is required, and must be an int; the mode is exclusive with every other mode.
+- The outcome mapping: before=true → 3; reset ok + after=true → 0; after=false or a throw → 1; lock held → 4.
+- Source guard:
+  - `ResetToFactory` is preceded by an `IsAtFactory` read and followed by an `IsAtFactory` confirmation;
+  - the lock comes before any ADLX call;
+  - the only GPU touched is the one matched by `uniqueId`;
+  - `MarkClean` runs only after a confirmed reset.
+
 ### Task 6: Docs
 
 - [ ] README "how restore works"; CHANGELOG rc.3 entry with the 1.0.x known issue and the manual fix; `docs/agent-handoff.md`.

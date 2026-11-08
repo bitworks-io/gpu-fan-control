@@ -112,6 +112,14 @@ Not validated on hardware yet.
 - DriverStore copies must pass `WinVerifyTrust` and match the AMD signer pin (subject
   `O=Advanced Micro Devices`, issuer `CN=Sectigo Public Code Signing CA R36`) before they load.
 
+## [1.0.1] — 2026-11-08
+
+### Fixed
+
+- A GPU installed in place of a removed one could come up with fan control disabled
+  (the removed card's saved setting blocked it); fixed. If a card is already affected,
+  enable it in Preferences.
+
 ## [1.0.0] — 2026-07-13
 
 First public release. A per-user Windows systray utility (.NET Framework 4.8
@@ -203,5 +211,6 @@ fan-curve UI. Publisher: Bitworks (bitworks.io).
 - No network calls except user-initiated browser opens to bitworks.io. No telemetry,
   no secrets.
 
-[1.1.0]: https://github.com/bitworks-io/gpu-fan-control/compare/v1.0.0...main
+[1.1.0]: https://github.com/bitworks-io/gpu-fan-control/compare/v1.0.1...main
+[1.0.1]: https://github.com/bitworks-io/gpu-fan-control/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/bitworks-io/gpu-fan-control/releases/tag/v1.0.0

@@ -371,6 +371,106 @@ public class BaselineJournalTests
         }
     }
 
+    // The fan state rc.2's points-only restore leaves behind: the captured curve, applied as a manual curve.
+    private static readonly int[] CapturedCurve = { 15, 32, 49, 66, 100 };
+
+    private static BaselineJournal DirtyJournal(bool? preAppAtFactory, int[]? speeds = null)
+    {
+        var j = new BaselineJournal();
+        j.MarkDirty(Id(), new FanBaseline(speeds ?? CapturedCurve, true, false, preAppAtFactory), T);
+        return j;
+    }
+
+    [Fact]
+    public void PreAppAtFactory_RoundTrips_AndLegacyParsesNull()
+    {
+        foreach (bool? value in new bool?[] { true, false, null })
+        {
+            var back = BaselineJournal.Parse(DirtyJournal(value).ToJson(), out var err);
+            Assert.Null(err);
+            Assert.Equal(value, back.Find(Id())!.PreAppAtFactory);
+        }
+        Assert.Contains("\"preAppAtFactory\": true", DirtyJournal(true).ToJson());
+
+        const string legacy = "{\"schema\":1,\"entries\":[{\"key\":\"GPU A|1\",\"name\":\"GPU A\",\"uniqueId\":1,\"stateCount\":5," +
+            "\"speeds\":[15,32,49,66,100],\"zeroRpmSupported\":true,\"zeroRpm\":false,\"dirty\":true,\"utc\":\"2026-11-06T18:00:00Z\"}]}";
+        var parsed = BaselineJournal.Parse(legacy, out var legacyErr);
+        Assert.Null(legacyErr);
+        Assert.Null(parsed.Find(Id())!.PreAppAtFactory);
+    }
+
+    [Fact]
+    public void RecoveredDirtyEntry_KeepsOriginalPreAppAtFactory()
+    {
+        // Engage with a factory pre-app state, force-kill (entry stays dirty), restart: the fan is still
+        // manual, so IsAtFactory now reads false. The plan must still be a factory reset.
+        var entry = DirtyJournal(true).Find(Id())!;
+        var capturedNow = new FanBaseline(new[] { 60, 60, 60, 60, 60 }, true, false, false);
+        var c = BaselinePlanner.Choose(Id(), capturedNow, entry);
+        Assert.Equal(BaselineChoiceKind.Journal, c.Kind);
+        Assert.Equal(true, c.Baseline.PreAppAtFactory);
+        Assert.Equal(ReleaseAction.FactoryReset, ReleasePlanner.Plan(c.Baseline.PreAppAtFactory).Action);
+    }
+
+    [Fact]
+    public void RecoveredDirtyEntry_UserManualCurve_ReappliesPoints()
+    {
+        var entry = DirtyJournal(false).Find(Id())!;
+        var capturedNow = new FanBaseline(new[] { 60, 60, 60, 60, 60 }, true, false, false);
+        var c = BaselinePlanner.Choose(Id(), capturedNow, entry);
+        Assert.Equal(BaselineChoiceKind.Journal, c.Kind);
+        Assert.Equal(ReleaseAction.ReapplyPoints, ReleasePlanner.Plan(c.Baseline.PreAppAtFactory).Action);
+        Assert.Equal(CapturedCurve, c.Baseline.Speeds);
+    }
+
+    [Fact]
+    public void PointsEqualButNotAtFactory_IsNotAlreadyRestored()
+    {
+        // The bench state after rc.2's restore: points equal the journal's, the pre-app GPU was at factory,
+        // and IsAtFactory reads false now. The curve is not flat, so this must not fall to Stale either.
+        var entry = DirtyJournal(true).Find(Id())!;
+        var capturedNow = new FanBaseline(CapturedCurve, true, false, false);
+        var c = BaselinePlanner.Choose(Id(), capturedNow, entry);
+        Assert.Equal(BaselineChoiceKind.Journal, c.Kind);
+        Assert.Equal(BaselineSource.Journal, c.Source);
+        Assert.Equal(ReleaseAction.FactoryReset, ReleasePlanner.Plan(c.Baseline.PreAppAtFactory).Action);
+    }
+
+    [Fact]
+    public void PointsEqualAndIsAtFactoryUnreadable_IsNotAlreadyRestored()
+    {
+        var entry = DirtyJournal(true).Find(Id())!;
+        var c = BaselinePlanner.Choose(Id(), new FanBaseline(CapturedCurve, true, false, null), entry);
+        Assert.Equal(BaselineChoiceKind.Journal, c.Kind);
+    }
+
+    [Fact]
+    public void PointsEqual_AtFactoryNow_IsAlreadyRestored()
+    {
+        var entry = DirtyJournal(true).Find(Id())!;
+        var c = BaselinePlanner.Choose(Id(), new FanBaseline(CapturedCurve, true, false, true), entry);
+        Assert.Equal(BaselineChoiceKind.AlreadyRestored, c.Kind);
+        Assert.Equal(BaselineSource.Captured, c.Source);
+    }
+
+    [Fact]
+    public void PointsEqual_PreAppNotFactoryOrLegacy_IsAlreadyRestored()
+    {
+        foreach (bool? pre in new bool?[] { false, null })
+        {
+            var entry = DirtyJournal(pre).Find(Id())!;
+            var c = BaselinePlanner.Choose(Id(), new FanBaseline(CapturedCurve, true, false, false), entry);
+            Assert.Equal(BaselineChoiceKind.AlreadyRestored, c.Kind);
+        }
+    }
+
+    [Fact]
+    public void Choose_Captured_CarriesCapturedPreAppAtFactory()
+    {
+        var c = BaselinePlanner.Choose(Id(), new FanBaseline(CapturedCurve, true, false, true), null);
+        Assert.Equal(true, c.Baseline.PreAppAtFactory);
+    }
+
     [Fact]
     public void ExitCode_RestoredZero_FailedOne_NothingThree()
     {

@@ -69,6 +69,20 @@ public class AutomationStatusTests
     }
 
     [Fact]
+    public void Stopped_ReleaseIssues_AreReportedInJson()
+    {
+        var plain = AutomationStatus.Stopped(1, Started, Now, "1.1.0");
+        Assert.Empty(plain.ReleaseIssues);
+        Assert.Contains("\"releaseIssues\": []", plain.ToJson());
+
+        var issues = new[] { ReleaseIssues.Format(ReleaseIssues.Incomplete, "GPU A") };
+        var s = AutomationStatus.Stopped(1, Started, Now, "1.1.0", issues);
+        Assert.Equal("release-incomplete: GPU A", Assert.Single(s.ReleaseIssues));
+        Assert.Contains("release-incomplete: GPU A", s.ToJson());
+        Assert.Empty(AutomationStatus.Stopped(1, Started, Now, "1.1.0", null).ReleaseIssues);
+    }
+
+    [Fact]
     public void Stopped_ReasonExit()
     {
         var s = AutomationStatus.Stopped(1, Started, Now, "1.1.0");

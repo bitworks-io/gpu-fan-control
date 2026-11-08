@@ -69,6 +69,50 @@ public class ProbeReportTests
     }
 
     [Fact]
+    public void PrintsTuningAtFactory_AndPreAppMode()
+    {
+        var r = Report(true, true, true, true);
+        r.Gpus[0].TuningAtFactory = TuningAtFactoryState.Yes;
+        r.Gpus[1].TuningAtFactory = TuningAtFactoryState.No;
+        r.Gpus[2].TuningAtFactory = TuningAtFactoryState.Unsupported;
+        r.Gpus[3].TuningAtFactory = TuningAtFactoryState.Error;
+        r.JournalEntries.Add(new ProbeJournalEntry { Name = "GPU0", Dirty = true, PreAppAtFactory = true });
+        r.JournalEntries.Add(new ProbeJournalEntry { Name = "GPU1", Dirty = true, PreAppAtFactory = false });
+        r.JournalEntries.Add(new ProbeJournalEntry { Name = "GPU2", Dirty = true, PreAppAtFactory = null });
+        var lines = r.Format().Split('\n');
+        Assert.Contains("tuningAtFactory=yes", lines.Single(l => l.Contains("'GPU0'") && l.Contains("manualFanTuning")));
+        Assert.Contains("tuningAtFactory=no", lines.Single(l => l.Contains("'GPU1'") && l.Contains("manualFanTuning")));
+        Assert.Contains("tuningAtFactory=unsupported", lines.Single(l => l.Contains("'GPU2'") && l.Contains("manualFanTuning")));
+        Assert.Contains("tuningAtFactory=error", lines.Single(l => l.Contains("'GPU3'") && l.Contains("manualFanTuning")));
+        Assert.Contains("journal entry 'GPU0' dirty=yes preAppAtFactory=true", r.Format());
+        Assert.Contains("journal entry 'GPU1' dirty=yes preAppAtFactory=false", r.Format());
+        Assert.Contains("journal entry 'GPU2' dirty=yes preAppAtFactory=unknown", r.Format());
+        Assert.Contains("pre-app mode unknown", r.Format());
+    }
+
+    [Fact]
+    public void Format_NoTuningAtFactory_WhenNotRead()
+    {
+        var text = Report(false).Format();
+        Assert.DoesNotContain("tuningAtFactory", text);
+        Assert.DoesNotContain("release incomplete", text);
+    }
+
+    [Fact]
+    public void Format_DirtyFactoryEntryOnNonFactoryGpu_FlagsReleaseIncomplete()
+    {
+        var r = Report(true);
+        r.Gpus[0].TuningAtFactory = TuningAtFactoryState.No;
+        r.JournalEntries.Add(new ProbeJournalEntry { Name = "GPU0", Dirty = true, PreAppAtFactory = true });
+        Assert.Contains("WARNING: release incomplete for 'GPU0'", r.Format());
+
+        var ok = Report(true);
+        ok.Gpus[0].TuningAtFactory = TuningAtFactoryState.Yes;
+        ok.JournalEntries.Add(new ProbeJournalEntry { Name = "GPU0", Dirty = true, PreAppAtFactory = true });
+        Assert.DoesNotContain("release incomplete", ok.Format());
+    }
+
+    [Fact]
     public void HasMixedModules_FalseWhenNone()
     {
         var r = Report(true);

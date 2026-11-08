@@ -12,6 +12,15 @@ public static class StatusReasons
     public const string Exit = "exit";
 }
 
+/// <summary>Kinds of release problem reported in <c>status.json</c> <c>releaseIssues</c> as <c>kind: GPU name</c>.</summary>
+public static class ReleaseIssues
+{
+    /// <summary>The GPU could not be confirmed back at the driver's automatic control; its journal entry stays dirty.</summary>
+    public const string Incomplete = "release-incomplete";
+
+    public static string Format(string kind, string gpuName) => kind + ": " + gpuName;
+}
+
 public sealed class StatusGpu
 {
     public string Name { get; set; } = "";
@@ -49,6 +58,8 @@ public sealed class AutomationStatus
     public string StartedUtc { get; set; } = "";
     public string UpdatedUtc { get; set; } = "";
     public string Version { get; set; } = "";
+    /// <summary>Per-GPU problems returning the fan to the driver's automatic control (see <see cref="ReleaseIssues"/>); empty when none.</summary>
+    public List<string> ReleaseIssues { get; set; } = new();
 
     public static AutomationStatus Starting(int pid, DateTime startedUtc, DateTime nowUtc, string version) =>
         Make(StateStarting, pid, startedUtc, nowUtc, version, null, null);
@@ -59,8 +70,14 @@ public sealed class AutomationStatus
     public static AutomationStatus Unavailable(int pid, DateTime startedUtc, DateTime nowUtc, string version, string reason) =>
         Make(StateUnavailable, pid, startedUtc, nowUtc, version, reason, null);
 
-    public static AutomationStatus Stopped(int pid, DateTime startedUtc, DateTime nowUtc, string version) =>
-        Make(StateStopped, pid, startedUtc, nowUtc, version, StatusReasons.Exit, null);
+    public static AutomationStatus Stopped(int pid, DateTime startedUtc, DateTime nowUtc, string version,
+        IReadOnlyList<string>? releaseIssues = null)
+    {
+        var status = Make(StateStopped, pid, startedUtc, nowUtc, version, StatusReasons.Exit, null);
+        if (releaseIssues != null)
+            status.ReleaseIssues = new List<string>(releaseIssues);
+        return status;
+    }
 
     /// <summary>Camel-case, indented, with nulls included (<c>"reason": null</c>).</summary>
     public string ToJson() => JsonSerializer.Serialize(this, JsonOptions);

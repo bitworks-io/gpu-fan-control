@@ -35,12 +35,12 @@ public class FailClosedSourceGuardTests
         Assert.True(start >= 0);
         int end = s.IndexOf("\n    }\n", start, StringComparison.Ordinal);
         var body = s.Substring(start, end - start);
-        Assert.Single(Regex.Matches(body, @"\.RestoreAutomaticFanControl\s*\("));
+        Assert.Single(Regex.Matches(body, @"\.TryRestoreAutomaticFanControl\s*\("));
         Assert.Contains("OnWriteError(", body);
         Assert.Contains("WriteErrorAction.ReleaseOnce", body);
         Assert.DoesNotContain("SetFanPercent", body);
         // The release call sits inside the ReleaseOnce branch.
-        Assert.True(body.IndexOf("WriteErrorAction.ReleaseOnce", StringComparison.Ordinal) < body.IndexOf("RestoreAutomaticFanControl", StringComparison.Ordinal));
+        Assert.True(body.IndexOf("WriteErrorAction.ReleaseOnce", StringComparison.Ordinal) < body.IndexOf("TryRestoreAutomaticFanControl", StringComparison.Ordinal));
         // The regulation write is wrapped so its error reaches the handler.
         Assert.Contains("HandleWriteError(channel", s);
     }

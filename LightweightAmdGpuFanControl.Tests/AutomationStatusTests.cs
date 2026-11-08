@@ -106,6 +106,15 @@ public class AutomationStatusTests
     }
 
     [Fact]
+    public void Engaged_CarriesReleaseIssuesInRun()
+    {
+        var s = AutomationStatus.Engaged(1, Started, Now, "1.1.0", Gpus(), null, new[] { "release-incomplete: GPU A" });
+        Assert.Equal("release-incomplete: GPU A", Assert.Single(s.ReleaseIssues));
+        Assert.Contains("release-incomplete: GPU A", s.ToJson());
+        Assert.Empty(AutomationStatus.Engaged(1, Started, Now, "1.1.0", Gpus()).ReleaseIssues);
+    }
+
+    [Fact]
     public void Stopped_ReasonExit()
     {
         var s = AutomationStatus.Stopped(1, Started, Now, "1.1.0");

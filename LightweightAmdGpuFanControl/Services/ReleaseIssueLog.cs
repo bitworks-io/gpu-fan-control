@@ -4,36 +4,33 @@ namespace LightweightAmdGpuFanControl.Services;
 
 /// <summary>
 /// Process-wide list of problems returning a GPU's fan to the driver's automatic control (see
-/// <see cref="ReleaseIssues"/>). FanController adds to it during a
-/// release; the automation status writer reports it in <c>status.json</c> when the run stops.
+/// <see cref="ReleaseIssues"/>), keyed per GPU by name plus uniqueId. FanController adds to it during a release;
+/// the automation status writer reports it in <c>status.json</c>.
 /// </summary>
 internal static class ReleaseIssueLog
 {
     private static readonly object Gate = new();
-    private static readonly List<string> Issues = new();
+    private static readonly List<(string Key, string Issue)> Issues = new();
 
-    public static void Add(string issue)
+    public static void Add(string gpuKey, string issue)
     {
         lock (Gate)
         {
-            if (!Issues.Contains(issue))
-                Issues.Add(issue);
+            if (!Issues.Contains((gpuKey, issue)))
+                Issues.Add((gpuKey, issue));
         }
     }
 
-    /// <summary>Drops a GPU's incomplete or unconfirmed records; called before each release so a later exact release clears them.</summary>
-    public static void Clear(string gpuName)
+    /// <summary>Drops one GPU's records; called before each release so a later exact release clears them.</summary>
+    public static void Clear(string gpuKey)
     {
         lock (Gate)
-        {
-            Issues.Remove(ReleaseIssues.Format(ReleaseIssues.Incomplete, gpuName));
-            Issues.Remove(ReleaseIssues.Format(ReleaseIssues.Unconfirmed, gpuName));
-        }
+            Issues.RemoveAll(i => i.Key == gpuKey);
     }
 
     public static IReadOnlyList<string> Snapshot()
     {
         lock (Gate)
-            return Issues.ToArray();
+            return Issues.Select(i => i.Issue).ToArray();
     }
 }

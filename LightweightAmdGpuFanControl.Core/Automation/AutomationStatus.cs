@@ -88,9 +88,11 @@ public sealed class AutomationStatus
         Make(StateStarting, pid, startedUtc, nowUtc, version, null, null);
 
     public static AutomationStatus Engaged(int pid, DateTime startedUtc, DateTime nowUtc, string version, IReadOnlyList<StatusGpu> gpus,
-        IReadOnlyList<StatusGpuIssue>? gpuIssues = null)
+        IReadOnlyList<StatusGpuIssue>? gpuIssues = null, IReadOnlyList<string>? releaseIssues = null)
     {
         var status = Make(StateEngaged, pid, startedUtc, nowUtc, version, null, gpus);
+        if (releaseIssues != null)
+            status.ReleaseIssues = new List<string>(releaseIssues);
         if (gpuIssues != null)
             status.GpuIssues = new List<StatusGpuIssue>(gpuIssues);
         return status;

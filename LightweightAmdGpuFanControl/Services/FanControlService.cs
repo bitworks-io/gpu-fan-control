@@ -5,6 +5,7 @@ using LightweightAmdGpuFanControl.Control;
 using LightweightAmdGpuFanControl.Gpu;
 using LightweightAmdGpuFanControl.Gpu.Native;
 using LightweightAmdGpuFanControl.Models;
+using LightweightAmdGpuFanControl.Recovery;
 
 namespace LightweightAmdGpuFanControl.Services;
 
@@ -179,7 +180,7 @@ public class FanControlService
                     channel.Control.OnWriteError(testError);
                     ControlIssueLog.Add(channel.Backend.AdapterName, GpuIssueStates.Refused, "self-test error: " + (channel.Control.Message ?? ""));
                     _logService.Log($"{channel.Backend.AdapterName}: self-test error (fan write or telemetry read); refusing this GPU ({channel.Control.Message}).");
-                    NotifyGpuIssue(channel.Backend.AdapterName, GpuIssueStates.Refused);
+                    NotifyGpuIssue(channel.Backend.AdapterName, GpuIssueStates.Refused, null);
                 }
                 else if (ok)
                     channel.Control.BeginRegulating();
@@ -490,11 +491,14 @@ public class FanControlService
         _logService.Log($"{channel.Backend.AdapterName}: fan write failed during regulation; no further writes to this GPU this run.", ex);
         if (action == WriteErrorAction.ReleaseOnce)
         {
-            channel.Backend.RestoreAutomaticFanControl();
+            bool released = channel.Backend.TryRestoreAutomaticFanControl();
             channel.ControlActive = false;
             channel.LastAppliedPercent = -1;
+            string outcome = ReleaseWording.Describe(released, channel.Backend.LastReleaseAction);
+            _logService.Log($"{channel.Backend.AdapterName}: after the fan write error, {outcome}.");
+            // The release (and any release-incomplete record) is done before this, so the in-run status carries both.
             ControlIssueLog.Add(channel.Backend.AdapterName, GpuIssueStates.Degraded, channel.Control.Message ?? "");
-            NotifyGpuIssue(channel.Backend.AdapterName, GpuIssueStates.Degraded);
+            NotifyGpuIssue(channel.Backend.AdapterName, GpuIssueStates.Degraded, outcome);
         }
     }
 
@@ -502,14 +506,14 @@ public class FanControlService
     /// Tray balloon when a GPU becomes refused or degraded. The tracker moves to those states once per GPU, so this
     /// shows at most once per GPU. Automation mode shows no UI.
     /// </summary>
-    private void NotifyGpuIssue(string gpuName, string state)
+    private void NotifyGpuIssue(string gpuName, string state, string? releaseOutcome)
     {
         var icon = _notifyIcon;
         if (icon == null || _automation)
             return;
         string text = state == GpuIssueStates.Refused
             ? $"Fan control was not started for {gpuName} because a fan setting failed. The driver keeps control of that fan."
-            : $"A fan setting failed for {gpuName}. The app stopped controlling it and handed the fan back to the driver. See the log.";
+            : $"A fan setting failed for {gpuName}. The app stopped controlling it; {releaseOutcome}. See the log.";
         PostToUi(() => icon.ShowBalloonTip(8000, "Fan control stopped for a GPU", text, ToolTipIcon.Warning));
     }
 

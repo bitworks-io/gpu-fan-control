@@ -89,15 +89,31 @@ public class FanReleaseSourceGuardTests
     }
 
     [Fact]
-    public void Initialize_FailsClosedWithoutAReleasableBaseline()
+    public void Initialize_FailsClosedWhenCaptureThrows_AndKeepsNoWrapper()
     {
         var s = FanController();
-        Assert.Contains("no releasable fan baseline", s);
         Assert.DoesNotContain("_baseline = null;", s);
         int init = s.IndexOf("internal bool Initialize(GPU gpu, out string? reason, BaselineJournalSession? journal)", StringComparison.Ordinal);
         Assert.True(init >= 0);
-        var body = s.Substring(init, s.IndexOf("private void CaptureBaseline", init, StringComparison.Ordinal) - init);
-        Assert.Contains("_baseline == null", body);
+        int end = s.IndexOf("private void CaptureBaseline", init, StringComparison.Ordinal);
+        var body = s.Substring(init, end - init);
+
+        // The baseline read is not wrapped in a swallowing try of its own.
+        int call = body.IndexOf("CaptureBaseline(gpu, journal);", StringComparison.Ordinal);
+        Assert.True(call >= 0);
+        Assert.DoesNotContain("try", body.Substring(Math.Max(0, call - 60), Math.Min(60, call)).Replace("entry", ""));
+
+        // A throw lands in Initialize's catch: wrapper dropped, reason set, false returned.
+        int lastCatch = body.LastIndexOf("catch (Exception ex)", StringComparison.Ordinal);
+        Assert.True(lastCatch > call);
+        var handler = body.Substring(lastCatch);
+        Assert.Contains("_manualFanTuning = null;", handler);
+        Assert.Contains("reason = ", handler);
+        Assert.Contains("return false;", handler);
+
+        // The capture reads the fan state before it touches the journal.
+        var capture = MethodBody(s, "private void CaptureBaseline");
+        Assert.True(capture.IndexOf("GetCurrentState()", StringComparison.Ordinal) < capture.IndexOf("try", StringComparison.Ordinal));
     }
 
     private static string MethodBody(string source, string signature)

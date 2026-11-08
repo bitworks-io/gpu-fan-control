@@ -80,27 +80,36 @@ internal sealed class AutomationStatusWriter
     }
 
     public void Starting() =>
-        Write(AutomationStatus.Starting(_pid, _startedUtc, DateTime.UtcNow, _version));
+        Write(() => AutomationStatus.Starting(_pid, _startedUtc, DateTime.UtcNow, _version));
 
     public void Engaged(IReadOnlyList<StatusGpu> gpus)
     {
         _engagedGpus = gpus;
-        Write(AutomationStatus.Engaged(_pid, _startedUtc, DateTime.UtcNow, _version, gpus, ControlIssueLog.Snapshot()));
+        // The issue lists are read inside the write lock (see Write), so a slower write can never land an older list last.
+        Write(() => AutomationStatus.Engaged(_pid, _startedUtc, DateTime.UtcNow, _version, gpus,
+            ControlIssueLog.Snapshot(), ReleaseIssueLog.Snapshot()));
     }
 
     public void Unavailable(string reason) =>
-        Write(AutomationStatus.Unavailable(_pid, _startedUtc, DateTime.UtcNow, _version, reason));
+        Write(() => AutomationStatus.Unavailable(_pid, _startedUtc, DateTime.UtcNow, _version, reason));
 
     public void Stopped() =>
-        Write(AutomationStatus.Stopped(_pid, _startedUtc, DateTime.UtcNow, _version, ReleaseIssueLog.Snapshot(), ControlIssueLog.Snapshot()));
+        Write(() => AutomationStatus.Stopped(_pid, _startedUtc, DateTime.UtcNow, _version, ReleaseIssueLog.Snapshot(), ControlIssueLog.Snapshot()));
 
-    private void Write(AutomationStatus status)
+    /// <summary>
+    /// Builds the status inside the write lock, so the content (including the issue lists) is current at the moment it
+    /// is written and the terminal-state check applies to it.
+    /// </summary>
+    private void Write(Func<AutomationStatus> build)
     {
+        string state = "?";
         try
         {
-            string json = status.ToJson();
             lock (_lock)
             {
+                var status = build();
+                state = status.State;
+                string json = status.ToJson();
                 // stopped / unavailable are final: a late write (e.g. engaged after a race) must not overwrite them.
                 if (_terminalState != null)
                 {
@@ -128,7 +137,7 @@ internal sealed class AutomationStatusWriter
         }
         catch (Exception ex)
         {
-            try { _log.Log($"status.json write failed ({status.State}): {ex.Message}"); } catch { }
+            try { _log.Log($"status.json write failed ({state}): {ex.Message}"); } catch { }
         }
     }
 }

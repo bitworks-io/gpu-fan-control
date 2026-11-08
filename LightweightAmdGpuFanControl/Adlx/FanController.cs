@@ -111,15 +111,9 @@ public sealed class FanController
                 return false;
 
             // The pre-app fan state is what a release restores. Without it the fan could stay at the app's last
-            // duty at exit, so fail closed: a capture failure makes the GPU unusable (no channel is created).
+            // duty at exit, so fail closed: a capture failure throws into the catch below, which drops the
+            // wrapper and returns false with a reason (no channel is created).
             CaptureBaseline(gpu, journal);
-            if (_baseline == null)
-            {
-                _manualFanTuning = null;
-                _gpu = null;
-                reason = "no releasable fan baseline could be captured";
-                return false;
-            }
             return true;
         }
         catch (Exception ex)
@@ -221,7 +215,7 @@ public sealed class FanController
 
     private void ReportIssue(string kind)
     {
-        ReleaseIssueLog.Add(ReleaseIssues.Format(kind, _gpu?.Name ?? ""));
+        ReleaseIssueLog.Add(_identity?.Key ?? "", ReleaseIssues.Format(kind, _gpu?.Name ?? ""));
     }
 
     /// <summary>
@@ -399,7 +393,7 @@ public sealed class FanController
             }
 
             LastReleasePlan = plan;
-            ReleaseIssueLog.Clear(_gpu?.Name ?? ""); // a later exact release replaces an earlier incomplete record
+            ReleaseIssueLog.Clear(_identity?.Key ?? ""); // a later exact release replaces an earlier incomplete record
             bool ok = RunStep(step, plan, _baseline);
             var result = ReleaseDecider.Result(step, ok, _baseline != null);
             if (result.ReapplyPointsFallback && _baseline != null)

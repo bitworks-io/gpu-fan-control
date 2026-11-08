@@ -56,7 +56,7 @@ This document is for the next implementation agent (Codex, Claude Code, or human
     - `Services/RestoreAutoRunner.cs`: `--restore-auto` one-shot.
     - `Services/AppPaths.cs`: data-folder file paths.
   - 1.1.0 files (Core): `Cli/LaunchOptions.cs` (arguments, `ExitCodes`), `Automation/AutomationStatus.cs` (`status.json` model, `StatusFilePath`), `Diagnostics/ProbeReport.cs`, `Drivers/` (`BoundAdlPlanner`, `InfPackageFile`, `AmdSignerPin`, `OverdriveRouting`), `Recovery/BaselineJournal.cs`, `IO/AtomicFile.cs`.
-- `LightweightAmdGpuFanControl.Tests/` (**net8.0** xUnit): 173 tests over policy, settings, enablement, the 1.1.0 Core logic and the `--probe` / `--stop` source guards.
+- `LightweightAmdGpuFanControl.Tests/` (**net8.0** xUnit): 176 tests over policy, settings, enablement, the 1.1.0 Core logic and the `--probe` / `--stop` source guards.
 - `external/ADLX/` (submodule): AMD ADLX SDK + C# wrapper. `ManualFanTuning.Reset()` captures/restores pre-app fan state.
 
 ## Local And Hosted Test Commands
@@ -64,7 +64,7 @@ This document is for the next implementation agent (Codex, Claude Code, or human
 ```sh
 # Core unit tests (runnable on macOS/Linux; only .NET 10 runtime here, so roll-forward)
 DOTNET_ROLL_FORWARD=Major dotnet test LightweightAmdGpuFanControl.Tests/LightweightAmdGpuFanControl.Tests.csproj -c Release --nologo
-# → Passed! Failed: 0, Passed: 173
+# → Passed! Failed: 0, Passed: 176
 ```
 
 Local net48 app compile (needs `git submodule update --init external/ADLX`; `AdlxBindPath` may point at any existing file). Expected: 0 errors.

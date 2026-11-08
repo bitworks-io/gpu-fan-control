@@ -297,7 +297,7 @@ Each experiment below is a template. The lead fills in the bench, card and build
   - Otherwise stop: nothing is installed and E1 does not run. This anchors the signature in the Windows trust store, which the post-release check on macOS cannot do.
 - **Inputs:**
   - an approved RDNA1 card on a bench already in the mismatch state (RDNA1/2 bound, RDNA3/4 in System32);
-  - the signed `v1.1.0-rc.1` installer, SHA-256 recorded;
+  - the signed rc installer under test (`v1.1.0-rc.N`; rc.1 ran on 2026-11-08 and failed on the `.\` resolver defect, so E1 re-runs on rc.2), SHA-256 recorded;
   - the card idle and the fan-control utility not running;
   - no bench job running, with the automation's own GPU sensor polling idle (it also loads ADL), and no other GPU tools.
   - Run as the bench's interactive user, in that user's session: `--probe`, then `--probe --no-preload`. The declaration names how it is launched in that session.

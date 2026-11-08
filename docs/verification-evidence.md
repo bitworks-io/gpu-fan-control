@@ -45,9 +45,9 @@ gh run download <run-id> -n LightweightAmdGpuFanControl-Setup
 - **Setup:** an RX 5700 XT (RDNA1) bound to the RDNA1/2 driver package (32.0.21045.16010), with System32 holding the RDNA3/4 package's `atiadlxx.dll` (7.26.20.1616) and `amdadlx64.dll` (1.5.0.124). That is the field mismatch. Declared and approved beforehand per plan §6, and run as the interactive user. Bench details are kept in private records.
 - **Step 0 passed on the bench:** `Get-AuthenticodeSignature` showed `Valid`, signer `O=Bitworks LLC`, SHA-256 `8024270d…8e9d`.
 - **Result:** `--probe` and `--probe --no-preload` both reported 0 ADLX GPUs (exit 3). The pre-load line read `Unresolved (atiadlxx.dll: disk path contains a relative segment)`.
-  - The bound INF's `[SourceDisksNames.amd64]` entry is `1 = %DiskId%,,,.\B026653`, and rc.1's resolver refused the `.` segment. So the app ran exactly the 1.0.0 path.
+  - The bound INF's `[SourceDisksNames.amd64]` entry is `1 = %DiskId%,,,.\B026653`, and rc.1's resolver refused the `.` segment. So the app ran exactly the 1.0.0 path. The captured INF also lists `amdadlx64.dll=1`, `atiadlxx.dll=1` and `atiadlxy.dll=1` under `[SourceDisksFiles]`, and both DLLs are present in `B026653` (`atiadlxx.dll` 7.25.10.1590, `amdadlx64.dll` 1.4.0.121). The test fixture is that text.
   - **H3 is untested, not refuted.** No fan value was written.
-- **Fix (rc.2):** a `.` segment is a no-op, and `..` stays refused. New tests use the exact INF text and check resolver → planner end to end. The new `.` tests fail against the rc.1 resolver and pass with the fix. `DOTNET_ROLL_FORWARD=Major dotnet test LightweightAmdGpuFanControl.Tests` → **Passed: 173, Failed: 0**.
+- **Fix (rc.2):** a `.` segment is a no-op, and `..` stays refused. New tests use the exact INF text and check resolver → planner end to end. The new `.` tests fail against the rc.1 resolver and pass with the fix. `DOTNET_ROLL_FORWARD=Major dotnet test LightweightAmdGpuFanControl.Tests` → **Passed: 176, Failed: 0**.
 - **Next:** E1 again on rc.2 (a new declaration). The rc.1 run is kept as a record, not retried.
 
 ## 2026-11-06 — v1.1.0-rc.1 release check (pre-hardware)

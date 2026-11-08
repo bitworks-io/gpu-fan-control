@@ -202,6 +202,28 @@ public class InfPackageFileTests
     }
 
     [Fact]
+    public void Resolve_ParentSegment_ReasonNamesIt()
+    {
+        var r = InfPackageFile.Resolve(Inf, Lines(
+            "[SourceDisksNames]", @"1 = D,,,.\..\evil",
+            "[SourceDisksFiles]", "atiadlxx.dll = 1"), "atiadlxx.dll");
+        Assert.Null(r.Path);
+        Assert.Contains("parent-folder segment", r.Reason);
+    }
+
+    // Only an exact "." or ".." is relative on Windows; "..." or ". ." is a literal folder name inside the package.
+    [Theory]
+    [InlineData(@"...", @"\...\atiadlxx.dll")]
+    [InlineData(@". .\B026653", @"\. .\B026653\atiadlxx.dll")]
+    public void Resolve_DotLookalikes_AreLiteralFoldersInsideThePackage(string diskPath, string expectedTail)
+    {
+        var r = InfPackageFile.Resolve(Inf, Lines(
+            "[SourceDisksNames]", "1 = D,,," + diskPath,
+            "[SourceDisksFiles]", "atiadlxx.dll = 1"), "atiadlxx.dll");
+        Assert.Equal(Folder + expectedTail, r.Path);
+    }
+
+    [Fact]
     public void Resolve_DotDotAfterDot_StillRefused()
     {
         AssertRefused(InfPackageFile.Resolve(Inf, Lines(

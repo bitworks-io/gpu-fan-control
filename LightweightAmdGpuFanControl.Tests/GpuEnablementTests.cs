@@ -149,4 +149,37 @@ public class GpuEnablementTests
         Assert.Single(result);
         Assert.True(result[0].Enabled);
     }
+
+    // ----- stale saved entries for GPUs that are no longer detected -----
+
+    [Fact]
+    public void StaleEnabledEntryForRemovedCard_DoesNotBlockNewPrimary()
+    {
+        var result = GpuEnablement.Reconcile(new[] { "ADLX:New Card" }, SavedSettings(("ADLX:Old Card", true)));
+        Assert.True(Assert.Single(result).Enabled);
+    }
+
+    [Fact]
+    public void SavedDisabledChoiceForDetectedCard_IsKept_EvenWithStaleEnabledEntry()
+    {
+        var result = GpuEnablement.Reconcile(new[] { "ADLX:New Card" },
+            SavedSettings(("ADLX:Old Card", true), ("ADLX:New Card", false)));
+        Assert.False(Assert.Single(result).Enabled);
+    }
+
+    [Fact]
+    public void DetectedEnabledCard_StillMakesNewSecondCardOptIn()
+    {
+        var result = GpuEnablement.Reconcile(new[] { "ADLX:A", "ADLX:B" }, SavedSettings(("ADLX:A", true)));
+        Assert.True(result[0].Enabled);
+        Assert.False(result[1].Enabled);
+    }
+
+    [Fact]
+    public void TwoNewCardsReplacingARemovedOne_OnlyPrimaryIsEnabled()
+    {
+        var result = GpuEnablement.Reconcile(new[] { "ADLX:New1", "ADLX:New2" }, SavedSettings(("ADLX:Old", true)));
+        Assert.True(result[0].Enabled);
+        Assert.False(result[1].Enabled);
+    }
 }

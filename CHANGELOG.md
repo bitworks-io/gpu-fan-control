@@ -39,6 +39,7 @@ Not validated on hardware yet.
     `releaseIssues`, and the journal entry stays dirty so `--restore-auto` can try again.
   - **Known issue in 1.0.x and rc.1/rc.2:** after the app exits, a GPU can be left under manual fan
     tuning with the curve it had at start. To undo it, reset GPU tuning for that card in AMD Software.
+- **rc.3: a GPU installed in place of a removed one could come up with fan control disabled** (the removed card's saved setting blocked it); fixed.
 - **rc.3: a failed fan write now fails closed.** Before, a fan-write error during regulation was
   logged and the same write was tried again every poll. Now an error at start or in the start-up
   self-test refuses that GPU (nothing more is written to it), and an error during regulation stops

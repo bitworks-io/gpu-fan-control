@@ -279,6 +279,17 @@ Other GPUs are unaffected.
 - Core, a pure per-GPU state machine: `Regulating` → error → `Degraded` (release once); `Starting` or self-test → error → `Refused` (no release write beyond what the planner says for a GPU that was never written); no transition back to `Regulating`; no second release.
 - A source guard: the regulation loop checks the per-GPU state before every write, and the error handler calls the release exactly once.
 
+### Task 5d: GpuEnablement stale entries (amendment, approved by the lead 2026-11-08)
+
+A defect present since v1.0.0. `GpuEnablement.Reconcile` counted every saved entry, including GPUs that are no longer detected, when deciding whether another GPU was already enabled. After a card swap, a stale enabled entry for the removed card made the newly detected primary card come up disabled, and the stale entry then dropped out, so the new card stayed disabled with no visible reason.
+
+- **Fix:** only saved entries whose id is among the detected ids count. Saved preferences are still respected exactly, and newly seen non-primary GPUs are still opt-in.
+- **Tests (`GpuEnablementTests`):**
+  - a removed card's enabled entry no longer blocks the new primary;
+  - a saved disabled choice for a detected card is kept;
+  - an enabled detected card still keeps a new second card opt-in;
+  - two new cards replacing a removed one enable only the primary.
+
 ### Task 6: Docs
 
 - [ ] README "how restore works"; CHANGELOG rc.3 entry with the 1.0.x known issue and the manual fix; `docs/agent-handoff.md`.

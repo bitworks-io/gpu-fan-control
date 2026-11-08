@@ -43,7 +43,7 @@ internal static class CapabilityProbe
                 + (options.NoPreload ? "disabled (--no-preload); would be " : "")
                 + $"{decision.Kind} ({decision.Reason})";
 
-            report.JournalLine = ReadJournalLine();
+            report.JournalLine = ReadJournalLine(report);
 
             new AdlxCapabilitySource(log).Read(report);
             new AdlCapabilitySource(log).Read(report);
@@ -70,7 +70,7 @@ internal static class CapabilityProbe
         }
     }
 
-    private static string ReadJournalLine()
+    private static string ReadJournalLine(ProbeReport report)
     {
         try
         {
@@ -81,6 +81,9 @@ internal static class CapabilityProbe
             var journal = BaselineJournal.Parse(File.ReadAllText(path), out var err);
             if (err != null)
                 return $"journal: unreadable ({err})";
+
+            foreach (var e in journal.Entries)
+                report.JournalEntries.Add(new ProbeJournalEntry { Name = e.Name, Dirty = e.Dirty, PreAppAtFactory = e.PreAppAtFactory });
 
             if (journal.HasDirty)
                 return "journal: DIRTY for " + string.Join(", ", journal.Entries.Where(e => e.Dirty).Select(e => e.Name));
@@ -108,7 +111,7 @@ internal static class CapabilityProbe
     }
 }
 
-/// <summary>ADLX capability reads: GPU list, manual-fan-tuning support, ranges and current state. No setters.</summary>
+/// <summary>ADLX capability reads: GPU list, manual-fan-tuning support, tuning-at-factory state, ranges and current state. No setters.</summary>
 internal sealed class AdlxCapabilitySource : IFanCapabilitySource
 {
     private readonly LogService _log;
@@ -139,6 +142,7 @@ internal sealed class AdlxCapabilitySource : IFanCapabilitySource
                 var gpu = gpus[i];
                 var entry = new ProbeGpu { Index = i, Name = gpu.Name, UniqueId = gpu.UniqueId };
                 report.Gpus.Add(entry);
+                entry.TuningAtFactory = ReadTuningAtFactory(tuning, gpu); // read-only query; independent of fan support
                 try
                 {
                     entry.ManualFanTuningSupported = tuning.IsManualFanTuningSupported(gpu);
@@ -175,6 +179,24 @@ internal sealed class AdlxCapabilitySource : IFanCapabilitySource
                 foreach (var g in gpus) SafeDispose(g);
             SafeDispose(services);
             SafeDispose(initializer);
+        }
+    }
+
+    /// <summary>IsAtFactory is a read-only query. A driver without it (missing entry point or ADLX_NOT_SUPPORTED) is "unsupported".</summary>
+    private static TuningAtFactoryState ReadTuningAtFactory(GPUTuningService tuning, GPU gpu)
+    {
+        try
+        {
+            return tuning.IsAtFactory(gpu) ? TuningAtFactoryState.Yes : TuningAtFactoryState.No;
+        }
+        catch (Exception ex) when (ex is EntryPointNotFoundException || ex is MissingMethodException
+            || ex.Message.Contains("ADLX_NOT_SUPPORTED"))
+        {
+            return TuningAtFactoryState.Unsupported;
+        }
+        catch
+        {
+            return TuningAtFactoryState.Error;
         }
     }
 

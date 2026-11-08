@@ -12,6 +12,26 @@ Not validated on hardware yet.
 
 ### Fixed
 
+- **rc.3: the fan is released to the driver's automatic control on exit.** Until rc.2 (and in 1.0.x)
+  every exit path re-applied the fan curve captured at start as a manual curve, so the GPU stayed
+  under manual fan tuning after the app closed. On a card whose fan stops at idle under automatic
+  control, the fan stop did not come back. Before its first fan write the app now records whether
+  the GPU's tuning was at factory settings, and on exit (graceful exit, `--stop`, `--restore-auto`
+  after a kill) a GPU that was at factory settings is reset to factory and confirmed. A GPU that
+  had its own tuning, or whose earlier mode is unknown, gets its saved fan points back. Not
+  validated on hardware yet.
+  - **What the factory reset covers:** ADLX `ResetToFactory` resets auto, GPU, fan, VRAM and power
+    tuning together, not just the fan. The app uses it only when the whole GPU was at factory
+    settings before the app's first fan write. Non-fan tuning (clocks, VRAM, power) that you change
+    in AMD Software while the app runs is reset too.
+  - **Entries from earlier builds:** a `baseline.json` entry written by 1.0.x or rc.1/rc.2 has no
+    factory flag. It is restored by re-applying its fan points, the log and `--probe` say
+    "pre-app mode unknown", and nothing is factory-reset on a guess.
+  - **If the release is not confirmed:** the fan points are re-applied, the log says
+    `[fan] release incomplete`, `status.json` lists `release-incomplete: <GPU>` under
+    `releaseIssues`, and the journal entry stays dirty so `--restore-auto` can try again.
+  - **Known issue in 1.0.x and rc.1/rc.2:** after the app exits, a GPU can be left under manual fan
+    tuning with the curve it had at start. To undo it, reset GPU tuning for that card in AMD Software.
 - **RDNA1 cards (RX 5700 / 5600 series) on machines whose System32 ADL/ADLX comes from a
   different AMD driver line than the one bound to the card.** ADLX opened but reported no GPU
   with manual fan tuning, and the ADL fallback found no fan interface. The app now loads the
@@ -28,7 +48,8 @@ Not validated on hardware yet.
 
 - `--probe [--no-preload]`: read-only capability report written to `log.txt` and
   `probe-<yyyyMMddTHHmmssZ>.txt`. No window, no fan writes. Exit `0` controllable GPU,
-  `3` none, `4` app running, `1` error.
+  `3` none, `4` app running, `1` error. rc.3 adds `tuningAtFactory=yes|no|unsupported|error` per
+  GPU and `preAppAtFactory=true|false|unknown` per journal entry.
 - `--automation [--status-file <fullpath>]`: no modal dialogs; writes `status.json`
   (`starting`, `engaged`, `unavailable`, `stopped`) with `pid` and `startedUtc`. Exit `3` when
   unavailable, `4` when another instance is running.
@@ -55,7 +76,7 @@ Not validated on hardware yet.
   `--restore-auto`) before removing files.
 - **The journal is only applied to a state the app wrote.** A dirty entry whose current fan state
   is not one flat duty in 20-85 % with Zero RPM off (stale), or already equals the journaled state,
-  is cleared instead of applied. A journal restore the driver rejects falls back to `Reset()`.
+  is cleared instead of applied. A journal restore the driver rejects leaves the entry dirty.
   Tray start never prunes a dirty entry. `--restore-auto` and `--automation` wait up to 15 s for
   the single-instance mutex.
 

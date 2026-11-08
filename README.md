@@ -38,7 +38,8 @@ target — a simpler, always-on alternative to the AMD Adrenalin fan-curve UI.
 - **Manual fixed-speed mode**, plus an Automatic mode toggle and
   Pause/Resume from the tray.
 - **Restore-to-automatic on exit** — every graceful shutdown path hands
-  control back to the driver's automatic fan management.
+  control back to the driver's automatic fan management
+  (see [How restore works](#how-restore-works)).
 - **RDNA1 (RX 5700 / 5600 series) support, pending hardware validation** — when the
   bound AMD driver package's ADL/ADLX differs from System32's, the app loads the
   bound package's own AMD-signed copies. Read-only `--probe` and unattended
@@ -148,6 +149,7 @@ Written atomically, camelCase, schema `1`; readers must ignore unknown fields.
 | `pid`, `startedUtc` | The writing process |
 | `updatedUtc` | Time of this write |
 | `version` | App version |
+| `releaseIssues` | Per-GPU problems returning a fan to automatic control, as `kind: GPU name` (`release-incomplete`, `release-unconfirmed`); written with `stopped`, normally empty |
 
 Sequence: `starting` once the single-instance mutex is held; `unavailable` with
 `no-backend` (no backend initialised) or `self-test-failed` (self-test failed on every
@@ -185,6 +187,28 @@ GPU's current state looks like one this app wrote (one flat duty in the 20-85 % 
 Zero RPM off); otherwise the entry is stale and is just cleared. The installer runs
 `--stop`, then a `taskkill` fallback, then `--restore-auto` on uninstall. ADL fallback adapters are not journaled. A corrupt `baseline.json` is set
 aside as `baseline.json.bad` and ignored; it never blocks fan control.
+
+### How restore works
+
+Before its first fan write to a GPU the app reads that GPU's state (fan curve, Zero RPM, and
+whether the whole GPU's tuning is at factory settings) and saves it. On exit, `--stop`,
+or `--restore-auto`:
+
+- **The GPU was at factory settings before the app wrote to it:** the app resets the GPU to factory
+  and checks that it reads as factory. This returns the fan to the driver's automatic control,
+  including a fan that stops at idle. The reset covers all tuning, not only the fan, so
+  **non-fan tuning (clocks, VRAM, power) you change while the app runs is reset too.**
+- **The GPU had its own tuning before the app wrote to it:** the app re-applies the fan curve and Zero RPM
+  setting it saved, so your own curve comes back as it was.
+- **The earlier state is unknown** (a `baseline.json` entry from 1.0.x or rc.1/rc.2, or a driver that cannot
+  report it): the saved fan points are re-applied, the log and `--probe` say "pre-app mode unknown",
+  and the GPU may still be under manual tuning. If its fan does not return to automatic, reset GPU tuning in
+  AMD Software.
+- **The reset is not confirmed:** the saved fan points are re-applied, the log says `[fan] release incomplete`,
+  `status.json` lists `release-incomplete: <GPU>` in `releaseIssues`, and the entry stays dirty so
+  `--restore-auto` can retry. `--probe` shows `tuningAtFactory` per GPU and `preAppAtFactory` per journal entry.
+
+A GPU the app never wrote to is left untouched on exit.
 
 ## Troubleshooting: "Fan Control Not Working?"
 

@@ -13,7 +13,7 @@
     <RootNamespace>LightweightAmdGpuFanControl</RootNamespace>
     <Author>Bitworks</Author>
     <Product>Lightweight AMD GPU Fan Control</Product>
-    <Version>1.0.0</Version>
+    <Version>1.0.1</Version>
   </PropertyGroup>
 
   <ItemGroup>

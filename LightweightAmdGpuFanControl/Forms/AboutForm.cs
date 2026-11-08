@@ -148,7 +148,7 @@ public sealed class AboutForm : Form
     private static string GetVersion()
     {
         var v = Assembly.GetExecutingAssembly().GetName().Version;
-        if (v == null) return "1.0.0";
+        if (v == null) return "1.0.1";
         return $"{v.Major}.{v.Minor}.{v.Build}";
     }
 }

@@ -21,7 +21,7 @@ $Root = Split-Path -Parent $MyInvocation.MyCommand.Path
 
 # Single source of truth for the version (repo-root VERSION file), propagated to the app and installer.
 $VersionFile = Join-Path $Root "VERSION"
-$Version = if (Test-Path $VersionFile) { (Get-Content $VersionFile -Raw).Trim() } else { "1.0.0" }
+$Version = if (Test-Path $VersionFile) { (Get-Content $VersionFile -Raw).Trim() } else { "1.0.1" }
 Write-Host "Building version $Version" -ForegroundColor Cyan
 
 function Assert-Command {

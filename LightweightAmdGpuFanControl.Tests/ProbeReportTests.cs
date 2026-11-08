@@ -113,6 +113,16 @@ public class ProbeReportTests
     }
 
     [Fact]
+    public void Format_LastRunGpuIssues_Printed()
+    {
+        var r = Report(true);
+        r.LastRunIssues.Add("GPU0 degraded: Result: ADLX_FAIL");
+        var text = r.Format();
+        Assert.Contains("last run: GPU0 degraded: Result: ADLX_FAIL", text);
+        Assert.DoesNotContain("last run:", Report(true).Format());
+    }
+
+    [Fact]
     public void HasMixedModules_FalseWhenNone()
     {
         var r = Report(true);

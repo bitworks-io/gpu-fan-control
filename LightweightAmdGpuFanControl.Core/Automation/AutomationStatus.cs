@@ -24,6 +24,24 @@ public static class ReleaseIssues
     public static string Format(string kind, string gpuName) => kind + ": " + gpuName;
 }
 
+/// <summary>States reported in <c>status.json</c> <c>gpuIssues</c>.</summary>
+public static class GpuIssueStates
+{
+    /// <summary>A write failed at start or in the self-test; the GPU is never written.</summary>
+    public const string Refused = "refused";
+
+    /// <summary>A write failed during regulation; the GPU was released once and is no longer regulated this run.</summary>
+    public const string Degraded = "degraded";
+}
+
+public sealed class StatusGpuIssue
+{
+    public string Gpu { get; set; } = "";
+    public string State { get; set; } = "";
+    /// <summary>The wrapper's error text.</summary>
+    public string Message { get; set; } = "";
+}
+
 public sealed class StatusGpu
 {
     public string Name { get; set; } = "";
@@ -63,23 +81,47 @@ public sealed class AutomationStatus
     public string Version { get; set; } = "";
     /// <summary>Per-GPU problems returning the fan to the driver's automatic control (see <see cref="ReleaseIssues"/>); empty when none.</summary>
     public List<string> ReleaseIssues { get; set; } = new();
+    /// <summary>GPUs that are refused or degraded because a fan write failed; empty when none.</summary>
+    public List<StatusGpuIssue> GpuIssues { get; set; } = new();
 
     public static AutomationStatus Starting(int pid, DateTime startedUtc, DateTime nowUtc, string version) =>
         Make(StateStarting, pid, startedUtc, nowUtc, version, null, null);
 
-    public static AutomationStatus Engaged(int pid, DateTime startedUtc, DateTime nowUtc, string version, IReadOnlyList<StatusGpu> gpus) =>
-        Make(StateEngaged, pid, startedUtc, nowUtc, version, null, gpus);
+    public static AutomationStatus Engaged(int pid, DateTime startedUtc, DateTime nowUtc, string version, IReadOnlyList<StatusGpu> gpus,
+        IReadOnlyList<StatusGpuIssue>? gpuIssues = null)
+    {
+        var status = Make(StateEngaged, pid, startedUtc, nowUtc, version, null, gpus);
+        if (gpuIssues != null)
+            status.GpuIssues = new List<StatusGpuIssue>(gpuIssues);
+        return status;
+    }
 
     public static AutomationStatus Unavailable(int pid, DateTime startedUtc, DateTime nowUtc, string version, string reason) =>
         Make(StateUnavailable, pid, startedUtc, nowUtc, version, reason, null);
 
     public static AutomationStatus Stopped(int pid, DateTime startedUtc, DateTime nowUtc, string version,
-        IReadOnlyList<string>? releaseIssues = null)
+        IReadOnlyList<string>? releaseIssues = null, IReadOnlyList<StatusGpuIssue>? gpuIssues = null)
     {
         var status = Make(StateStopped, pid, startedUtc, nowUtc, version, StatusReasons.Exit, null);
         if (releaseIssues != null)
             status.ReleaseIssues = new List<string>(releaseIssues);
+        if (gpuIssues != null)
+            status.GpuIssues = new List<StatusGpuIssue>(gpuIssues);
         return status;
+    }
+
+    /// <summary>Parses a status.json text; null when it is empty or not a status object. Never throws.</summary>
+    public static AutomationStatus? TryParse(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return null;
+        try
+        {
+            return JsonSerializer.Deserialize<AutomationStatus>(json!, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     /// <summary>Camel-case, indented, with nulls included (<c>"reason": null</c>).</summary>

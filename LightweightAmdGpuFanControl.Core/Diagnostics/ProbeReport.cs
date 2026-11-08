@@ -57,6 +57,8 @@ public sealed class ProbeReport
     public string AdlxInit { get; set; } = "";
     public string JournalLine { get; set; } = "";
     public List<ProbeJournalEntry> JournalEntries { get; } = new();
+    /// <summary>Refused or degraded GPUs recorded in the last run's status.json (default path only), one line each.</summary>
+    public List<string> LastRunIssues { get; } = new();
     public List<ProbeGpu> Gpus { get; } = new();
     public List<ProbeAdlAdapter> AdlAdapters { get; } = new();
     public List<ProbeModule> Modules { get; } = new();
@@ -97,6 +99,8 @@ public sealed class ProbeReport
                 && Gpus.Any(g => g.TuningAtFactory == TuningAtFactoryState.No && string.Equals(g.Name, e.Name, StringComparison.Ordinal)))
                 sb.AppendLine($"WARNING: release incomplete for '{e.Name}': it was at factory before the app ran but is not at factory now. Run --restore-auto, or reset GPU tuning in AMD Software.");
         }
+        foreach (var issue in LastRunIssues)
+            sb.AppendLine("last run: " + issue);
         sb.AppendLine($"adl adapters: {AdlAdapters.Count}");
         foreach (var a in AdlAdapters)
             sb.AppendLine($"  adapter {a.Index} capsRc={a.CapsResult} supported={a.Supported} enabled={a.Enabled} version={a.Version} family={a.Family}");

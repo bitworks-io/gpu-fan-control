@@ -162,7 +162,8 @@ Latest installer for testing: CI run `28686185843` artifact `LightweightAmdGpuFa
 
 - **Implemented locally, not validated on hardware:** plan [docs/superpowers/plans/2026-11-08-rc3-release-to-driver-auto.md](superpowers/plans/2026-11-08-rc3-release-to-driver-auto.md), Tasks 1-6. `ReleasePlanner` (Core) picks `FactoryReset` (ADLX `ResetToFactory`, confirmed by `IsAtFactory`) or `ReapplyPoints`; `baseline.json` entries carry `preAppAtFactory` (null for 1.0.x/rc.1/rc.2 entries); `FanController.Release` is the single release path and `ManualFanTuning.Reset()` is never called (source guards in `FanReleaseSourceGuardTests`).
 - **Submodule:** `external/ADLX` points at the bitworks-io/ADLX fork (Rem0o/ADLX 240b1f3 plus `IsAtFactory`/`ResetToFactory` on `GPUTuningService`); see NOTICE. The fork must exist and contain the pinned commit before CI can check out the submodule.
-- **Open:** `ADLX_RESET_NEEDED` handling (refuse a GPU under one-click auto tuning) is not implemented: the pinned SDK headers and the SWIG `ADLX_RESULT` enum have no such value and the wrapper's exception carries no result code. H0 (does `IsAtFactory` read false under a manual fan curve) and H1-H3 are not run.
+- **D6 (fail closed, Task 5c):** the pinned SDK has no `ADLX_RESET_NEEDED` and the wrapper reports errors only as text, so every fan-write error is treated alike: `GpuControlTracker` (Core) refuses a GPU on a start/self-test error and degrades it on a regulation error (one release through the planner path, no retries). Reported as `gpuIssues` in `status.json` and `last run:` lines in `--probe`; guarded by `FailClosedSourceGuardTests`.
+- **Open:** H0 (does `IsAtFactory` read false under a manual fan curve) and H1-H3 are not run.
 
 ## Context Handoff Hygiene
 

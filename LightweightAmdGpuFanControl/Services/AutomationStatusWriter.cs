@@ -22,6 +22,7 @@ internal sealed class AutomationStatusWriter
     private readonly object _lock = new();
     private readonly HashSet<string> _failedStates = new();
     private string? _terminalState;
+    private IReadOnlyList<StatusGpu>? _engagedGpus;
     private bool _loggedIgnored;
 
     public AutomationStatusWriter(string path, LogService log)
@@ -34,6 +35,15 @@ internal sealed class AutomationStatusWriter
         catch { _startedUtc = DateTime.UtcNow; }
         var v = typeof(Program).Assembly.GetName().Version;
         _version = v == null ? "" : $"{v.Major}.{v.Minor}.{Math.Max(v.Build, 0)}";
+        ControlIssueLog.Changed += OnControlIssuesChanged;
+    }
+
+    /// <summary>A GPU became refused or degraded after <c>engaged</c> was written: rewrite the engaged status with the issue.</summary>
+    private void OnControlIssuesChanged()
+    {
+        var gpus = _engagedGpus;
+        if (gpus != null)
+            Engaged(gpus);
     }
 
     public static string ResolvePath(LaunchOptions options, LogService log)
@@ -65,14 +75,17 @@ internal sealed class AutomationStatusWriter
     public void Starting() =>
         Write(AutomationStatus.Starting(_pid, _startedUtc, DateTime.UtcNow, _version));
 
-    public void Engaged(IReadOnlyList<StatusGpu> gpus) =>
-        Write(AutomationStatus.Engaged(_pid, _startedUtc, DateTime.UtcNow, _version, gpus));
+    public void Engaged(IReadOnlyList<StatusGpu> gpus)
+    {
+        _engagedGpus = gpus;
+        Write(AutomationStatus.Engaged(_pid, _startedUtc, DateTime.UtcNow, _version, gpus, ControlIssueLog.Snapshot()));
+    }
 
     public void Unavailable(string reason) =>
         Write(AutomationStatus.Unavailable(_pid, _startedUtc, DateTime.UtcNow, _version, reason));
 
     public void Stopped() =>
-        Write(AutomationStatus.Stopped(_pid, _startedUtc, DateTime.UtcNow, _version, ReleaseIssueLog.Snapshot()));
+        Write(AutomationStatus.Stopped(_pid, _startedUtc, DateTime.UtcNow, _version, ReleaseIssueLog.Snapshot(), ControlIssueLog.Snapshot()));
 
     private void Write(AutomationStatus status)
     {

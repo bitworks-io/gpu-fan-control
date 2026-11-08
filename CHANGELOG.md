@@ -32,6 +32,15 @@ Not validated on hardware yet.
     `releaseIssues`, and the journal entry stays dirty so `--restore-auto` can try again.
   - **Known issue in 1.0.x and rc.1/rc.2:** after the app exits, a GPU can be left under manual fan
     tuning with the curve it had at start. To undo it, reset GPU tuning for that card in AMD Software.
+- **rc.3: a failed fan write now fails closed.** Before, a fan-write error during regulation was
+  logged and the same write was tried again every poll. Now an error at start or in the start-up
+  self-test refuses that GPU (nothing more is written to it), and an error during regulation stops
+  regulating that GPU, releases it once (factory reset confirmed by IsAtFactory when it was at
+  factory before the app wrote, otherwise its saved fan points), and never retries. Other GPUs are
+  not affected. `status.json` lists the GPU under `gpuIssues` as `refused` or `degraded` with the
+  driver wrapper's message, and `--probe` prints the last run's issues as `last run:` lines. The ADLX
+  SDK in use has no distinct "reset needed" result (for example when one-click auto tuning is on), so
+  every fan-write error is treated the same way. Not validated on hardware yet.
 - **rc.3: `--reset-tuning-to-factory --gpu <uniqueId>`** returns one named GPU to factory settings on
   demand, for a card left under manual tuning by 1.0.x or rc.1/rc.2. It resets **ALL of this GPU's
   tuning (clock, VRAM, power and fan) to factory settings, not only the fan**. There is no all-GPUs form.

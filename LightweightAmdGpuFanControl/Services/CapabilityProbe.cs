@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using ADLXWrapper;
 using LightweightAmdGpuFanControl.Adlx;
+using LightweightAmdGpuFanControl.Automation;
 using LightweightAmdGpuFanControl.Cli;
 using LightweightAmdGpuFanControl.Diagnostics;
 using LightweightAmdGpuFanControl.Drivers;
@@ -44,6 +45,7 @@ internal static class CapabilityProbe
                 + $"{decision.Kind} ({decision.Reason})";
 
             report.JournalLine = ReadJournalLine(report);
+            ReadLastRunIssues(report);
 
             new AdlxCapabilitySource(log).Read(report);
             new AdlCapabilitySource(log).Read(report);
@@ -67,6 +69,28 @@ internal static class CapabilityProbe
         {
             SingleInstance.Release(mutex);
             oneShot?.Dispose();
+        }
+    }
+
+    /// <summary>Refused or degraded GPUs recorded by the last automation run at the default status path. Read-only.</summary>
+    private static void ReadLastRunIssues(ProbeReport report)
+    {
+        try
+        {
+            string path = AppPaths.DefaultStatusPath;
+            if (!File.Exists(path))
+                return;
+            var status = AutomationStatus.TryParse(File.ReadAllText(path));
+            if (status == null)
+                return;
+            foreach (var issue in status.GpuIssues)
+                report.LastRunIssues.Add($"{issue.Gpu} {issue.State}: {issue.Message}");
+            foreach (var issue in status.ReleaseIssues)
+                report.LastRunIssues.Add(issue);
+        }
+        catch
+        {
+            // diagnostics only
         }
     }
 

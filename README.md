@@ -150,6 +150,7 @@ Written atomically, camelCase, schema `1`; readers must ignore unknown fields.
 | `pid`, `startedUtc` | The writing process |
 | `updatedUtc` | Time of this write |
 | `version` | App version |
+| `gpuIssues` | GPUs the app stopped writing to because a fan write failed, as `{ "gpu", "state", "message" }`: `refused` (error at start or in the self-test) or `degraded` (error during regulation; released once, not regulated again this run). The message is the driver wrapper's text. Normally empty |
 | `releaseIssues` | Per-GPU problems returning a fan to automatic control, as `kind: GPU name` (`release-incomplete`, `release-unconfirmed`); written with `stopped`, normally empty |
 
 Sequence: `starting` once the single-instance mutex is held; `unavailable` with

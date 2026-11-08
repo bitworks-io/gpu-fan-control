@@ -83,6 +83,29 @@ public class AutomationStatusTests
     }
 
     [Fact]
+    public void GpuIssues_ReportedInEngagedAndStopped_AndParseBack()
+    {
+        var issues = new[]
+        {
+            new StatusGpuIssue { Gpu = "GPU A", State = GpuIssueStates.Degraded, Message = "Result: ADLX_FAIL" },
+            new StatusGpuIssue { Gpu = "GPU B", State = GpuIssueStates.Refused, Message = "no" },
+        };
+        Assert.Empty(AutomationStatus.Engaged(1, Started, Now, "1.1.0", Gpus()).GpuIssues);
+        var e = AutomationStatus.Engaged(1, Started, Now, "1.1.0", Gpus(), issues);
+        Assert.Equal(2, e.GpuIssues.Count);
+        Assert.Contains("\"gpuIssues\"", e.ToJson());
+        Assert.Contains("\"state\": \"degraded\"", e.ToJson());
+        Assert.Equal(2, AutomationStatus.Stopped(1, Started, Now, "1.1.0", null, issues).GpuIssues.Count);
+
+        var back = AutomationStatus.TryParse(e.ToJson());
+        Assert.NotNull(back);
+        Assert.Equal("Result: ADLX_FAIL", back!.GpuIssues[0].Message);
+        Assert.Equal("engaged", back.State);
+        Assert.Null(AutomationStatus.TryParse("not json"));
+        Assert.Null(AutomationStatus.TryParse(null));
+    }
+
+    [Fact]
     public void Stopped_ReasonExit()
     {
         var s = AutomationStatus.Stopped(1, Started, Now, "1.1.0");

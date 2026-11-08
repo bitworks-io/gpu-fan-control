@@ -168,10 +168,22 @@ public class FanControlService
         {
             if (_disposed) return;
             bool ok;
+            string? testError;
             lock (_controlLock)
             {
                 if (_disposed) return;
-                ok = _fanControlTest.RunTest(channel.Backend, _logService);
+                ok = _fanControlTest.RunTest(channel.Backend, _logService, out testError);
+                // Fail closed: a write error in the self-test refuses this GPU for the rest of the run.
+                if (testError != null)
+                {
+                    channel.Control.OnWriteError(testError);
+                    ControlIssueLog.Add(channel.Backend.AdapterName, GpuIssueStates.Refused, channel.Control.Message ?? "");
+                    _logService.Log($"{channel.Backend.AdapterName}: fan write failed in the self-test; refusing this GPU ({channel.Control.Message}).");
+                }
+                else if (ok)
+                    channel.Control.BeginRegulating();
+                else
+                    channel.Control.Refuse("self-test did not pass");
             }
             channel.TestPassed = ok;
             channel.TestCompleted = true;
@@ -404,6 +416,14 @@ public class FanControlService
         int? fanPercent = null;
         int? fanRpm = null;
 
+        // Refused or degraded: never write to this GPU again this run (it was already released once if needed).
+        if (!channel.Control.MayWrite)
+        {
+            var idle = SafeTelemetry(backend);
+            return new GpuStatus(backend.AdapterName, backend.GpuId, enabled, false,
+                SafeTemp(backend), idle.percent, idle.rpm);
+        }
+
         // A disabled channel, or any channel while paused / whose test failed, is relinquished
         // to the driver's automatic curve exactly once, then left alone.
         if (_paused || !enabled || (channel.TestCompleted && !channel.TestPassed))
@@ -434,8 +454,20 @@ public class FanControlService
             bool reassert = (_pollCount % ReassertEveryTicks) == 0;
             if (decision.Percent != channel.LastAppliedPercent || reassert)
             {
-                backend.SetFanPercent(decision.Percent);
-                channel.LastAppliedPercent = decision.Percent;
+                if (channel.Control.MayWrite)
+                {
+                    try
+                    {
+                        backend.SetFanPercent(decision.Percent);
+                        channel.LastAppliedPercent = decision.Percent;
+                    }
+                    catch (Exception ex)
+                    {
+                        HandleWriteError(channel, ex);
+                        var failed = SafeTelemetry(backend);
+                        return new GpuStatus(backend.AdapterName, backend.GpuId, true, false, temp, failed.percent, failed.rpm);
+                    }
+                }
             }
             channel.ControlActive = true;
             fanPercent = decision.Percent;
@@ -444,6 +476,24 @@ public class FanControlService
         var tele = SafeTelemetry(backend);
         return new GpuStatus(backend.AdapterName, backend.GpuId, true, channel.ControlActive,
             temp, fanPercent ?? tele.percent, tele.rpm);
+    }
+
+    /// <summary>
+    /// A fan write failed during regulation. The GPU leaves regulation for the rest of the run: it is released once
+    /// through the backend's restore (the planner path, confirmed by IsAtFactory where that plan applies) and is never
+    /// written again. Caller holds <c>_controlLock</c>. Never retries.
+    /// </summary>
+    private void HandleWriteError(ControlChannel channel, Exception ex)
+    {
+        var action = channel.Control.OnWriteError(ex.Message);
+        _logService.Log($"{channel.Backend.AdapterName}: fan write failed during regulation; no further writes to this GPU this run.", ex);
+        if (action == WriteErrorAction.ReleaseOnce)
+        {
+            channel.Backend.RestoreAutomaticFanControl();
+            channel.ControlActive = false;
+            channel.LastAppliedPercent = -1;
+            ControlIssueLog.Add(channel.Backend.AdapterName, GpuIssueStates.Degraded, channel.Control.Message ?? "");
+        }
     }
 
     private static double? SafeTemp(IFanControlBackend backend)
@@ -469,6 +519,7 @@ public class FanControlService
 
         public IFanControlBackend Backend { get; }
         public PolicyState State { get; } = new();
+        public GpuControlTracker Control { get; } = new(); // only mutated under _controlLock
         public volatile bool TestCompleted;
         public volatile bool TestPassed;
         public bool ControlActive; // only mutated under _controlLock

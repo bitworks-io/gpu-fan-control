@@ -11,6 +11,7 @@ public enum TuningAtFactoryState { Yes, No, Unsupported, Error }
 public sealed class ProbeJournalEntry
 {
     public string Name { get; set; } = "";
+    public int? UniqueId { get; set; }
     public bool Dirty { get; set; }
     public bool? PreAppAtFactory { get; set; }
 }
@@ -94,9 +95,10 @@ public sealed class ProbeReport
             string mode = e.PreAppAtFactory.HasValue ? (e.PreAppAtFactory.Value ? "true" : "false") : "unknown";
             sb.AppendLine($"journal entry '{e.Name}' dirty={(e.Dirty ? "yes" : "no")} preAppAtFactory={mode}");
             if (e.Dirty && !e.PreAppAtFactory.HasValue)
-                sb.AppendLine($"  note: '{e.Name}' pre-app mode unknown (entry written before rc.3); --restore-auto re-applies the saved fan points. If the fan does not return to automatic, reset GPU tuning in AMD Software.");
+                sb.AppendLine($"  note: '{e.Name}' pre-app mode unknown (no factory flag recorded); --restore-auto re-applies the saved fan points. If the fan does not return to automatic, reset GPU tuning in AMD Software.");
             if (e.Dirty && e.PreAppAtFactory == true
-                && Gpus.Any(g => g.TuningAtFactory == TuningAtFactoryState.No && string.Equals(g.Name, e.Name, StringComparison.Ordinal)))
+                && Gpus.Any(g => g.TuningAtFactory == TuningAtFactoryState.No && string.Equals(g.Name, e.Name, StringComparison.Ordinal)
+                    && (!e.UniqueId.HasValue || !g.UniqueId.HasValue || e.UniqueId.Value == g.UniqueId.Value)))
                 sb.AppendLine($"WARNING: release incomplete for '{e.Name}': it was at factory before the app ran but is not at factory now. Run --restore-auto, or reset GPU tuning in AMD Software.");
         }
         foreach (var issue in LastRunIssues)

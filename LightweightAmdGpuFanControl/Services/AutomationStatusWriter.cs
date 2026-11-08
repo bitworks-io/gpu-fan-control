@@ -22,7 +22,7 @@ internal sealed class AutomationStatusWriter
     private readonly object _lock = new();
     private readonly HashSet<string> _failedStates = new();
     private string? _terminalState;
-    private IReadOnlyList<StatusGpu>? _engagedGpus;
+    private volatile IReadOnlyList<StatusGpu>? _engagedGpus;
     private bool _loggedIgnored;
 
     public AutomationStatusWriter(string path, LogService log)
@@ -41,9 +41,16 @@ internal sealed class AutomationStatusWriter
     /// <summary>A GPU became refused or degraded after <c>engaged</c> was written: rewrite the engaged status with the issue.</summary>
     private void OnControlIssuesChanged()
     {
-        var gpus = _engagedGpus;
-        if (gpus != null)
-            Engaged(gpus);
+        // Raised under the control lock: never write the file there. Each queued write reads the latest issue
+        // snapshot when it runs, so reordering cannot leave an older list on disk.
+        if (_engagedGpus == null)
+            return;
+        ThreadPool.QueueUserWorkItem(_ =>
+        {
+            var gpus = _engagedGpus;
+            if (gpus != null)
+                Engaged(gpus);
+        });
     }
 
     public static string ResolvePath(LaunchOptions options, LogService log)

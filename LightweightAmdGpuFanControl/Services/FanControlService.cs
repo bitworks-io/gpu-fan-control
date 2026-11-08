@@ -173,12 +173,13 @@ public class FanControlService
             {
                 if (_disposed) return;
                 ok = _fanControlTest.RunTest(channel.Backend, _logService, out testError);
-                // Fail closed: a write error in the self-test refuses this GPU for the rest of the run.
+                // Fail closed: an error in the self-test refuses this GPU for the rest of the run.
                 if (testError != null)
                 {
                     channel.Control.OnWriteError(testError);
-                    ControlIssueLog.Add(channel.Backend.AdapterName, GpuIssueStates.Refused, channel.Control.Message ?? "");
-                    _logService.Log($"{channel.Backend.AdapterName}: fan write failed in the self-test; refusing this GPU ({channel.Control.Message}).");
+                    ControlIssueLog.Add(channel.Backend.AdapterName, GpuIssueStates.Refused, "self-test error: " + (channel.Control.Message ?? ""));
+                    _logService.Log($"{channel.Backend.AdapterName}: self-test error (fan write or telemetry read); refusing this GPU ({channel.Control.Message}).");
+                    NotifyGpuIssue(channel.Backend.AdapterName, GpuIssueStates.Refused);
                 }
                 else if (ok)
                     channel.Control.BeginRegulating();
@@ -493,7 +494,23 @@ public class FanControlService
             channel.ControlActive = false;
             channel.LastAppliedPercent = -1;
             ControlIssueLog.Add(channel.Backend.AdapterName, GpuIssueStates.Degraded, channel.Control.Message ?? "");
+            NotifyGpuIssue(channel.Backend.AdapterName, GpuIssueStates.Degraded);
         }
+    }
+
+    /// <summary>
+    /// Tray balloon when a GPU becomes refused or degraded. The tracker moves to those states once per GPU, so this
+    /// shows at most once per GPU. Automation mode shows no UI.
+    /// </summary>
+    private void NotifyGpuIssue(string gpuName, string state)
+    {
+        var icon = _notifyIcon;
+        if (icon == null || _automation)
+            return;
+        string text = state == GpuIssueStates.Refused
+            ? $"Fan control was not started for {gpuName} because a fan setting failed. The driver keeps control of that fan."
+            : $"A fan setting failed for {gpuName}. The app stopped controlling it and handed the fan back to the driver. See the log.";
+        PostToUi(() => icon.ShowBalloonTip(8000, "Fan control stopped for a GPU", text, ToolTipIcon.Warning));
     }
 
     private static double? SafeTemp(IFanControlBackend backend)

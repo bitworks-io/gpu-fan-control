@@ -107,7 +107,7 @@ internal static class CapabilityProbe
                 return $"journal: unreadable ({err})";
 
             foreach (var e in journal.Entries)
-                report.JournalEntries.Add(new ProbeJournalEntry { Name = e.Name, Dirty = e.Dirty, PreAppAtFactory = e.PreAppAtFactory });
+                report.JournalEntries.Add(new ProbeJournalEntry { Name = e.Name, UniqueId = e.UniqueId, Dirty = e.Dirty, PreAppAtFactory = e.PreAppAtFactory });
 
             if (journal.HasDirty)
                 return "journal: DIRTY for " + string.Join(", ", journal.Entries.Where(e => e.Dirty).Select(e => e.Name));

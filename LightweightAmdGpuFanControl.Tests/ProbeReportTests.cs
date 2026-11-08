@@ -123,6 +123,28 @@ public class ProbeReportTests
     }
 
     [Fact]
+    public void Format_UnknownMode_DoesNotClaimItWasWrittenBeforeRc3()
+    {
+        var r = Report(true);
+        r.JournalEntries.Add(new ProbeJournalEntry { Name = "GPU0", Dirty = true, PreAppAtFactory = null });
+        var text = r.Format();
+        Assert.Contains("pre-app mode unknown", text);
+        Assert.DoesNotContain("before rc.3", text);
+    }
+
+    [Fact]
+    public void Format_ReleaseIncomplete_MatchesGpuByNameAndUniqueId()
+    {
+        var r = new ProbeReport { AdlxInit = "ok" };
+        r.Gpus.Add(new ProbeGpu { Index = 0, Name = "Twin", UniqueId = 1, TuningAtFactory = TuningAtFactoryState.Yes });
+        r.Gpus.Add(new ProbeGpu { Index = 1, Name = "Twin", UniqueId = 2, TuningAtFactory = TuningAtFactoryState.No });
+        r.JournalEntries.Add(new ProbeJournalEntry { Name = "Twin", UniqueId = 1, Dirty = true, PreAppAtFactory = true });
+        Assert.DoesNotContain("release incomplete", r.Format());
+        r.JournalEntries.Add(new ProbeJournalEntry { Name = "Twin", UniqueId = 2, Dirty = true, PreAppAtFactory = true });
+        Assert.Contains("release incomplete for 'Twin'", r.Format());
+    }
+
+    [Fact]
     public void HasMixedModules_FalseWhenNone()
     {
         var r = Report(true);

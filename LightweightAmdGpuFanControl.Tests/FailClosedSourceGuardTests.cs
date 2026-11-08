@@ -9,7 +9,7 @@ public class FailClosedSourceGuardTests
         var dir = new DirectoryInfo(AppContext.BaseDirectory);
         while (dir != null && !File.Exists(Path.Combine(dir.FullName, "LightweightAmdGpuFanControl.sln"))) dir = dir.Parent;
         Assert.NotNull(dir);
-        var text = File.ReadAllText(Path.Combine(dir!.FullName, "LightweightAmdGpuFanControl", "Services", "FanControlService.cs"));
+        var text = SourceText.Read(Path.Combine(dir!.FullName, "LightweightAmdGpuFanControl", "Services", "FanControlService.cs"));
         text = Regex.Replace(text, @"/\*.*?\*/", "", RegexOptions.Singleline);
         return Regex.Replace(text, @"//[^\r\n]*", "");
     }

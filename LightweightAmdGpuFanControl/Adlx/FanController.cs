@@ -110,20 +110,15 @@ public sealed class FanController
             if (_manualFanTuning == null)
                 return false;
 
-            try
+            // The pre-app fan state is what a release restores. Without it the fan could stay at the app's last
+            // duty at exit, so fail closed: a capture failure makes the GPU unusable (no channel is created).
+            CaptureBaseline(gpu, journal);
+            if (_baseline == null)
             {
-                CaptureBaseline(gpu, journal);
-            }
-            catch (Exception ex)
-            {
-                _log?.Log($"[fan] journal disabled for '{gpu.Name}': {ex.GetType().Name}: {ex.Message}");
-                _journal = null;
-                _source = BaselineSource.Captured;
-                _choiceKind = BaselineChoiceKind.NoEntry;
-                _baseline = null;
-                _identity = null;
-                _journalDirty = false;
-                _releasePending = false;
+                _manualFanTuning = null;
+                _gpu = null;
+                reason = "no releasable fan baseline could be captured";
+                return false;
             }
             return true;
         }
@@ -144,27 +139,38 @@ public sealed class FanController
         var captured = new FanBaseline(speeds, zeroSupported, zeroRpm, ReadAtFactory(gpu));
         var identity = new GpuIdentity(gpu.Name ?? "", gpu.UniqueId, speeds.Length);
 
+        _identity = identity;
+        _baseline = captured;
+        _source = BaselineSource.Captured;
+        _choiceKind = BaselineChoiceKind.NoEntry;
+        _journal = null;
+        _journalDirty = false;
+        _releasePending = false;
         if (journal == null)
+            return;
+
+        try
         {
-            _identity = identity;
+            var choice = journal.Choose(identity, captured);
+            _baseline = choice.Baseline;
+            _source = choice.Source;
+            _choiceKind = choice.Kind;
+            _journal = journal;
+            // A recovered entry is already dirty on disk.
+            _journalDirty = choice.Source == BaselineSource.Journal;
+            _releasePending = _journalDirty;
+        }
+        catch (Exception ex)
+        {
+            // Journal trouble never blocks control: keep the captured baseline, without a journal.
+            _log?.Log($"[fan] journal disabled for '{gpu.Name}': {ex.GetType().Name}: {ex.Message}");
             _baseline = captured;
             _source = BaselineSource.Captured;
             _choiceKind = BaselineChoiceKind.NoEntry;
             _journal = null;
             _journalDirty = false;
             _releasePending = false;
-            return;
         }
-
-        var choice = journal.Choose(identity, captured);
-        _identity = identity;
-        _baseline = choice.Baseline;
-        _source = choice.Source;
-        _choiceKind = choice.Kind;
-        _journal = journal;
-        // A recovered entry is already dirty on disk.
-        _journalDirty = choice.Source == BaselineSource.Journal;
-        _releasePending = _journalDirty;
     }
 
     /// <summary>
@@ -219,48 +225,46 @@ public sealed class FanController
     }
 
     /// <summary>
-    /// Returns the GPU to its pre-app state as <paramref name="plan"/> says. True only for an exact release: a
-    /// confirmed factory reset, or re-applied points. A factory reset that is not confirmed re-applies the points,
-    /// reports the incomplete release and returns false so the journal entry stays dirty. A points failure throws.
+    /// Executes <paramref name="step"/> (chosen by <see cref="ReleaseDecider"/>) and reports whether it succeeded: a
+    /// factory reset that IsAtFactory confirmed, or points that were applied. Failures are logged here, never thrown.
     /// </summary>
-    private bool Release(ReleasePlan plan, FanBaseline? points)
+    private bool RunStep(ReleaseStep step, ReleasePlan plan, FanBaseline? points)
     {
         string name = _gpu?.Name ?? "";
-        if (plan.Action == ReleaseAction.FactoryReset)
+        switch (step)
         {
-            if (TryFactoryReset())
-            {
-                _log?.Log($"[fan] release action=FactoryReset confirmed=true for '{name}' ({plan.Why})");
+            case ReleaseStep.FactoryReset:
+                if (TryFactoryReset())
+                {
+                    _log?.Log($"[fan] release action=FactoryReset confirmed=true for '{name}' ({plan.Why})");
+                    return true;
+                }
+                return false;
+
+            case ReleaseStep.ReapplyPoints:
+                try
+                {
+                    ReapplyPoints(points!);
+                }
+                catch (Exception ex)
+                {
+                    _log?.Log($"[fan] release incomplete for '{name}': re-applying the fan points failed ({ex.GetType().Name}: {ex.Message})");
+                    return false;
+                }
+                _log?.Log($"[fan] release action=ReapplyPoints confirmed=n/a for '{name}' ({plan.Why})");
+                if (plan.ModeUnknown)
+                {
+                    _log?.Log($"[fan] pre-app mode unknown for '{name}': fan points re-applied, but the GPU may still be under manual tuning. " +
+                              "If its fan does not return to the driver's automatic control, reset GPU tuning in AMD Software.");
+                    if (_atFactoryUnavailable)
+                        ReportIssue(ReleaseIssues.Unconfirmed);
+                }
                 return true;
-            }
 
-            ReportIssue(ReleaseIssues.Incomplete);
-            if (points != null)
-            {
-                try { ReapplyPoints(points); }
-                catch (Exception ex) { _log?.Log($"[fan] release fallback re-apply failed: {ex.GetType().Name}: {ex.Message}"); }
-            }
-            _log?.Log($"[fan] release action=FactoryReset confirmed=false for '{name}'; fan points re-applied, journal entry left dirty");
-            return false;
+            default:
+                _log?.Log($"[fan] release incomplete for '{name}': no pre-app fan state was captured");
+                return false;
         }
-
-        if (points == null)
-        {
-            ReportIssue(ReleaseIssues.Incomplete);
-            _log?.Log($"[fan] release incomplete for '{name}': no pre-app fan state was captured");
-            return false;
-        }
-
-        ReapplyPoints(points);
-        _log?.Log($"[fan] release action=ReapplyPoints confirmed=n/a for '{name}' ({plan.Why})");
-        if (plan.ModeUnknown)
-        {
-            _log?.Log($"[fan] pre-app mode unknown for '{name}': fan points re-applied, but the GPU may still be under manual tuning. " +
-                      "If its fan does not return to the driver's automatic control, reset GPU tuning in AMD Software.");
-            if (_atFactoryUnavailable)
-                ReportIssue(ReleaseIssues.Unconfirmed);
-        }
-        return true;
     }
 
     /// <summary>Records the pre-app baseline as dirty before the first write of this run. Never throws.</summary>
@@ -386,20 +390,33 @@ public sealed class FanController
         if (_manualFanTuning == null) return false;
         try
         {
-            if (!_releasePending)
+            var plan = ReleasePlanner.Plan(_baseline?.PreAppAtFactory);
+            var step = ReleaseDecider.First(_releasePending, plan, _baseline != null);
+            if (step == ReleaseStep.Nothing)
             {
                 _lastAppliedPercent = -1;
                 return true;
             }
 
-            var plan = ReleasePlanner.Plan(_baseline?.PreAppAtFactory);
             LastReleasePlan = plan;
-            bool exact = Release(plan, _baseline);
+            ReleaseIssueLog.Clear(_gpu?.Name ?? ""); // a later exact release replaces an earlier incomplete record
+            bool ok = RunStep(step, plan, _baseline);
+            var result = ReleaseDecider.Result(step, ok, _baseline != null);
+            if (result.ReapplyPointsFallback && _baseline != null)
+            {
+                try { ReapplyPoints(_baseline); }
+                catch (Exception ex) { _log?.Log($"[fan] release fallback re-apply failed: {ex.GetType().Name}: {ex.Message}"); }
+                _log?.Log($"[fan] release action=FactoryReset confirmed=false for '{_gpu?.Name}'; fan points re-applied, journal entry left dirty");
+            }
+            if (result.ReportIncomplete)
+                ReportIssue(ReleaseIssues.Incomplete);
+
+            bool exact = result.Exact;
             _lastAppliedPercent = -1; // control released; the next Set starts a fresh latch
             if (exact)
             {
                 _releasePending = false;
-                if (_journalDirty && _journal != null && _identity != null)
+                if (result.MarkClean && _journalDirty && _journal != null && _identity != null)
                 {
                     _journal.MarkClean(_identity);
                     _journalDirty = false;

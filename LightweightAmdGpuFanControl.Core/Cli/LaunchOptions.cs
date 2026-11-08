@@ -37,6 +37,7 @@ public sealed class LaunchOptions
         bool probe = false, restore = false, stop = false, automation = false, noPreload = false;
         string? statusFile = null, statusFileError = null;
         bool reset = false, gpuGiven = false;
+        int gpuCount = 0;
         int? gpuId = null;
         var ignored = new List<string>();
 
@@ -54,6 +55,7 @@ public sealed class LaunchOptions
                 else if (Is(a, "--gpu"))
                 {
                     gpuGiven = true;
+                    gpuCount++;
                     gpuId = null;
                     string? next = i + 1 < args.Count ? args[i + 1] : null;
                     if (next != null && !next.StartsWith("--", StringComparison.Ordinal))
@@ -85,6 +87,7 @@ public sealed class LaunchOptions
 
         string? error = null;
         if (reset && (probe || restore || stop)) error = "--reset-tuning-to-factory cannot be combined with --probe, --restore-auto or --stop";
+        else if (gpuCount > 1) error = "--gpu was given more than once";
         else if (reset && !gpuGiven) error = "--reset-tuning-to-factory needs --gpu <uniqueId>";
         else if (gpuGiven && gpuId == null) error = "--gpu needs an integer uniqueId";
         else if (gpuGiven && !reset) error = "--gpu is only valid with --reset-tuning-to-factory";

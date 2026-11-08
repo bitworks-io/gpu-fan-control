@@ -23,7 +23,7 @@ public class FanReleaseSourceGuardTests
     private static string Code(params string[] relative)
     {
         var path = Path.Combine(new[] { FindRepoRoot(), "LightweightAmdGpuFanControl" }.Concat(relative).ToArray());
-        var text = File.ReadAllText(path);
+        var text = SourceText.Read(path);
         text = Regex.Replace(text, @"/\*.*?\*/", "", RegexOptions.Singleline);
         return Regex.Replace(text, @"//[^\r\n]*", "");
     }
@@ -86,5 +86,49 @@ public class FanReleaseSourceGuardTests
             var before = runner.Substring(Math.Max(0, m.Index - 250), Math.Min(250, m.Index));
             Assert.Contains("AlreadyRestored", before);
         }
+    }
+
+    [Fact]
+    public void Initialize_FailsClosedWithoutAReleasableBaseline()
+    {
+        var s = FanController();
+        Assert.Contains("no releasable fan baseline", s);
+        Assert.DoesNotContain("_baseline = null;", s);
+        int init = s.IndexOf("internal bool Initialize(GPU gpu, out string? reason, BaselineJournalSession? journal)", StringComparison.Ordinal);
+        Assert.True(init >= 0);
+        var body = s.Substring(init, s.IndexOf("private void CaptureBaseline", init, StringComparison.Ordinal) - init);
+        Assert.Contains("_baseline == null", body);
+    }
+
+    private static string MethodBody(string source, string signature)
+    {
+        int start = source.IndexOf(signature, StringComparison.Ordinal);
+        Assert.True(start >= 0, signature);
+        int end = source.IndexOf("\n    }\n", start, StringComparison.Ordinal);
+        Assert.True(end > start);
+        return source.Substring(start, end - start);
+    }
+
+    [Fact]
+    public void DecreasePath_NeverFactoryResets_AndJournalIsMarkedBeforeTheFirstWrite()
+    {
+        var body = MethodBody(FanController(), "public void SetFanPercent(int percent)");
+        Assert.DoesNotContain("ResetToFactory", body);
+        Assert.DoesNotContain("TryFactoryReset", body);
+        int mark = body.IndexOf("MarkDirtyBeforeFirstWrite()", StringComparison.Ordinal);
+        Assert.True(mark >= 0);
+        foreach (var write in new[] { "ReapplyPoints(", "SetZeroRPM(", "SetFanTuningStates2(" })
+        {
+            int w = body.IndexOf(write, StringComparison.Ordinal);
+            Assert.True(w > mark, write + " must come after MarkDirtyBeforeFirstWrite");
+        }
+    }
+
+    [Fact]
+    public void Release_GoesThroughReleaseDecider()
+    {
+        var s = FanController();
+        Assert.Contains("ReleaseDecider.First(", s);
+        Assert.Contains("ReleaseDecider.Result(", s);
     }
 }

@@ -24,6 +24,13 @@ Not validated on hardware yet.
     tuning together, not just the fan. The app uses it only when the whole GPU was at factory
     settings before the app's first fan write. Non-fan tuning (clocks, VRAM, power) that you change
     in AMD Software while the app runs is reset too.
+  - **When a release can factory-reset a GPU.** Only for a GPU that was at factory settings before the app's
+    first write to it (or whose recovered journal entry says so), and at each of these moments: the end of the
+    start-up self-test (on every channel the test ran on), Pause, a GPU disabled in settings, the sensor-failure
+    relinquish, a release after a fan-write error, `RestoreAll` after an unhandled exception, and exit,
+    `--stop` and `--restore-auto`. Each of those resets non-fan tuning (clocks, VRAM, power) changed since the
+    app's first write. After a crash, non-fan tuning you changed before the next start can be reset too, because
+    that start's release factory-resets the GPU the crashed run had written to.
   - **Entries from earlier builds:** a `baseline.json` entry written by 1.0.x or rc.1/rc.2 has no
     factory flag. It is restored by re-applying its fan points, the log and `--probe` say
     "pre-app mode unknown", and nothing is factory-reset on a guess.
@@ -35,8 +42,9 @@ Not validated on hardware yet.
 - **rc.3: a failed fan write now fails closed.** Before, a fan-write error during regulation was
   logged and the same write was tried again every poll. Now an error at start or in the start-up
   self-test refuses that GPU (nothing more is written to it), and an error during regulation stops
-  regulating that GPU, releases it once (factory reset confirmed by IsAtFactory when it was at
-  factory before the app wrote, otherwise its saved fan points), and never retries. Other GPUs are
+  regulating that GPU, releases it right then (factory reset confirmed by IsAtFactory when it was at
+  factory before the app wrote, otherwise its saved fan points), and never retries; the normal release at
+  exit still runs afterwards. Other GPUs are
   not affected. `status.json` lists the GPU under `gpuIssues` as `refused` or `degraded` with the
   driver wrapper's message, and `--probe` prints the last run's issues as `last run:` lines. The ADLX
   SDK in use has no distinct "reset needed" result (for example when one-click auto tuning is on), so
@@ -45,7 +53,8 @@ Not validated on hardware yet.
   demand, for a card left under manual tuning by 1.0.x or rc.1/rc.2. It resets **ALL of this GPU's
   tuning (clock, VRAM, power and fan) to factory settings, not only the fan**. There is no all-GPUs form.
   Exit `0` reset and confirmed by IsAtFactory, `3` already at factory (nothing written), `4` app
-  running, `1` GPU not found, no manual fan tuning, or not confirmed. After a confirmed reset the GPU's
+  running, `1` GPU not found, no manual fan tuning, `IsAtFactory` unreadable before the reset, or not
+  confirmed. A repeated `--gpu` is a usage error (exit `2`). After a confirmed reset the GPU's
   dirty legacy journal entry is cleared. Not validated on hardware yet.
 - **RDNA1 cards (RX 5700 / 5600 series) on machines whose System32 ADL/ADLX comes from a
   different AMD driver line than the one bound to the card.** ADLX opened but reported no GPU

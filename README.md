@@ -118,7 +118,7 @@ Arguments are case-insensitive. Unknown arguments are logged and ignored.
 | `--automation [--status-file <fullpath>]` | Tray app with no modal dialogs; writes `status.json` | `0` graceful exit · `3` unavailable · `4` already running |
 | `--probe [--no-preload]` | Read-only capability report; no window, no fan writes | `0` controllable GPU · `3` none · `4` app running · `1` error |
 | `--restore-auto` | One-shot restore of the journaled pre-app fan state | `0` restored · `3` nothing to restore · `4` app running · `1` error |
-| `--reset-tuning-to-factory --gpu <uniqueId>` | One-shot: resets **ALL of this GPU's tuning (clock, VRAM, power and fan) to factory settings, not only the fan**, for the one GPU with that ADLX `uniqueId` (shown by `--probe`); confirms it with IsAtFactory. No all-GPUs form | `0` reset and confirmed · `3` already at factory (nothing written) · `4` app running · `1` GPU not found, no manual fan tuning, or not confirmed |
+| `--reset-tuning-to-factory --gpu <uniqueId>` | One-shot: resets **ALL of this GPU's tuning (clock, VRAM, power and fan) to factory settings, not only the fan**, for the one GPU with that ADLX `uniqueId` (shown by `--probe`); confirms it with IsAtFactory. No all-GPUs form | `0` reset and confirmed · `3` already at factory (nothing written) · `4` app running · `1` GPU not found, no manual fan tuning, `IsAtFactory` unreadable before the reset, or not confirmed |
 | `--stop` | Asks a running instance to exit gracefully (restores every backend) and waits up to 20 s; never kills | `0` stopped · `3` not running · `1` timeout or older running build |
 
 `--probe` exits `0` only when ADLX manual fan tuning is supported; ADL adapters are
@@ -128,7 +128,7 @@ reported but not counted.
 before passing `--stop`, `--restore-auto` or `--probe`. An older build ignores unknown
 arguments and starts the tray app, including its "already running" dialog.
 
-Exit `2` is a usage error (no UI): any two of `--probe`, `--restore-auto`, `--stop` and `--reset-tuning-to-factory`,
+Exit `2` is a usage error (no UI): a repeated `--gpu`, any two of `--probe`, `--restore-auto`, `--stop` and `--reset-tuning-to-factory`,
 `--no-preload` without `--probe`, `--reset-tuning-to-factory` without an integer `--gpu`, or `--gpu` without it. `--automation` combined with `--probe` or `--restore-auto` is accepted.
 
 Files are written to `%LOCALAPPDATA%\Bitworks\LightweightAmdGpuFanControl`:
@@ -150,7 +150,7 @@ Written atomically, camelCase, schema `1`; readers must ignore unknown fields.
 | `pid`, `startedUtc` | The writing process |
 | `updatedUtc` | Time of this write |
 | `version` | App version |
-| `gpuIssues` | GPUs the app stopped writing to because a fan write failed, as `{ "gpu", "state", "message" }`: `refused` (error at start or in the self-test) or `degraded` (error during regulation; released once, not regulated again this run). The message is the driver wrapper's text. Normally empty |
+| `gpuIssues` | GPUs the app stopped writing to because a fan write failed, as `{ "gpu", "state", "message" }`: `refused` (error at start or in the self-test) or `degraded` (error during regulation; released when the error happens, plus the normal release at exit, and not regulated again this run). The message is the driver wrapper's text. Normally empty |
 | `releaseIssues` | Per-GPU problems returning a fan to automatic control, as `kind: GPU name` (`release-incomplete`, `release-unconfirmed`); written with `stopped`, normally empty |
 
 Sequence: `starting` once the single-instance mutex is held; `unavailable` with
@@ -211,6 +211,13 @@ or `--restore-auto`:
   `--restore-auto` can retry. `--probe` shows `tuningAtFactory` per GPU and `preAppAtFactory` per journal entry.
 
 A GPU the app never wrote to is left untouched on exit.
+
+**When the factory reset can happen.** For a GPU that was at factory settings before the app's first write to it,
+every release is a factory reset: at the end of the start-up self-test (on every channel the test ran on), on
+Pause, when a GPU is disabled in settings, when a repeated sensor failure hands a GPU back, after a fan-write error
+on that GPU, in the recovery after an unhandled exception, and on exit, `--stop` and `--restore-auto`. Each one
+resets non-fan tuning (clocks, VRAM, power) changed since then. After a crash, non-fan tuning you changed before the
+next start can be reset by that start's release too.
 
 **GPUs left under manual tuning by 1.0.x or rc.1/rc.2:** run
 `--reset-tuning-to-factory --gpu <uniqueId>` (read the id from `--probe`) with the app closed. It resets

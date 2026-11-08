@@ -200,4 +200,12 @@ public class LaunchOptionsTests
         }
         Assert.NotNull(LaunchOptions.Parse(new[] { "--reset-tuning-to-factory", "--gpu", "1", "--no-preload" }).Error);
     }
+
+    [Fact]
+    public void Parse_RepeatedGpu_IsUsageError()
+    {
+        var o = LaunchOptions.Parse(new[] { "--reset-tuning-to-factory", "--gpu", "1", "--gpu", "2" });
+        Assert.NotNull(o.Error);
+        Assert.Contains("more than once", o.Error);
+    }
 }

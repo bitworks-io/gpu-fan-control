@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Status:** DRAFT for the lead's review. No code until it is approved. No hardware step runs until its declared experiment (§6) has been approved.
+**Status:** APPROVED (2026-11-08) with amendments 5b, 5c. No hardware step runs until its declared experiment (§6) has been approved.
 
 **Goal:** Every restore path (graceful exit, `--stop`, `--restore-auto`, and recovery after a crash or kill) must return a GPU whose pre-app fan state was the driver's automatic control to that automatic control. A user's own pre-app manual curve must still come back as that manual curve.
 
@@ -155,7 +155,7 @@ Per GPU it prints `tuningAtFactory=yes|no|unsupported|error`, and per journal en
 - `ReleasePlannerTests.UserManualCurve_PlansReapplyPoints_SamePoints`
 - `ReleasePlannerTests.LegacyEntry_PlansReapplyPoints_ModeUnknown`
 - `BaselineJournalTests.PreAppAtFactory_RoundTrips_AndLegacyParsesNull`
-- `BaselineJournalTests.RecoveredDirtyEntry_KeepsOriginalPreAppAtFactory`: the E1/E2 incident path. Engage with a factory pre-app state, force-kill (the entry stays dirty), restart with `IsAtFactory=false`. The plan must be `FactoryReset`.
+- `BaselineJournalTests.RecoveredDirtyEntry_KeepsOriginalPreAppAtFactory`: the crash-then-restore incident path. Engage with a factory pre-app state, force-kill (the entry stays dirty), restart with `IsAtFactory=false`. The plan must be `FactoryReset`.
 - `BaselineJournalTests.PointsEqualButNotAtFactory_IsNotAlreadyRestored`: the bench state after rc.2's restore. The points equal the journal's, `PreAppAtFactory=true`, and `IsAtFactory` reads false now. The choice must be `Journal` with `FactoryReset`, not `AlreadyRestored`.
 - `ProbeReportTests.PrintsTuningAtFactory_AndPreAppMode`
 - `FanReleaseSourceGuardTests`, over FanController.cs and RestoreAutoRunner.cs:
@@ -174,8 +174,9 @@ The remaining steps run against the test card after the owner's AMD Software res
 
 - **H1 (read-only):** the rc.3 probe shows `tuningAtFactory=yes`, and the idle fan stop is seen on PMLog and D3DKMT.
 - **H2 (write):** an rc.3 start at idle, then `engaged`, then a graceful `--stop`. Afterwards: `tuningAtFactory=yes`, and the idle fan stop returns within 3 min.
+  - H2 also observes the state right after the start-up self-test (the self-test's release can factory-reset), and across Pause and Resume, including whether the `ManualFanTuning` interfaces still work for writes after a mid-run `ResetToFactory`.
 - **H3 (write; the incident path):** engage, then force-kill, then `--restore-auto` (exit 0). Afterwards: `tuningAtFactory=yes`, and the fan stop returns.
-- **Then E2c**, the regulation test under load, with the lead's ruling-1 timing change.
+- **Then the regulation test under load**, with the lead's timing change.
 
 ## 7. Tasks
 
@@ -287,7 +288,7 @@ Other GPUs are unaffected.
 
 - [ ] PR (ask before pushing). Merge on review. Tag `v1.1.0-rc.3` only via CI, with the lead's and owner's OK.
 - [ ] Verify the signed release (sha, Authenticode).
-- [ ] Then H1–H3, then E2c.
+- [ ] Then H1–H3, then the regulation test under load.
 
 ## 8. Open decisions for the lead
 

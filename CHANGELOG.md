@@ -103,5 +103,5 @@ fan-curve UI. Publisher: Bitworks (bitworks.io).
 - No network calls except user-initiated browser opens to bitworks.io. No telemetry,
   no secrets.
 
-[1.0.1]: https://github.com/bitworks-io/gpu-fan-control/releases/tag/v1.0.1
+[1.0.1]: https://github.com/bitworks-io/gpu-fan-control/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/bitworks-io/gpu-fan-control/releases/tag/v1.0.0

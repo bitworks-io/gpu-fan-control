@@ -286,6 +286,7 @@ A defect present since v1.0.0. `GpuEnablement.Reconcile` counted every saved ent
 - **Fix:** only saved entries whose id is among the detected ids count. Saved preferences are still respected exactly, and newly seen non-primary GPUs are still opt-in.
 - **Tests (`GpuEnablementTests`):**
   - a removed card's enabled entry no longer blocks the new primary;
+  - a card already saved as off by this defect stays off (it can't be told from a real choice); the CHANGELOG tells users to enable it in Preferences;
   - a saved disabled choice for a detected card is kept;
   - an enabled detected card still keeps a new second card opt-in;
   - two new cards replacing a removed one enable only the primary.

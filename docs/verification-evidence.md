@@ -40,6 +40,16 @@ gh run download <run-id> -n LightweightAmdGpuFanControl-Setup
 - Skipped checks and reason: installer signing (no cert secret); all on-hardware behavior (no AMD GPU on this macOS host).
 - Residual risk: **all runtime fan behavior, restore-to-auto, and the no-admin assumption are unverified** — they require a real AMD Windows PC (Phase 5 checklist in `agent-handoff.md`).
 
+## 2026-11-08 — E1 (read-only probe) on rc.1: FAIL, rc.1 resolver defect; fixed for rc.2
+
+- **Setup:** an RX 5700 XT (RDNA1) bound to the RDNA1/2 driver package (32.0.21045.16010), with System32 holding the RDNA3/4 package's `atiadlxx.dll` (7.26.20.1616) and `amdadlx64.dll` (1.5.0.124). That is the field mismatch. Declared and approved beforehand per plan §6, and run as the interactive user. Bench details are kept in private records.
+- **Step 0 passed on the bench:** `Get-AuthenticodeSignature` showed `Valid`, signer `O=Bitworks LLC`, SHA-256 `8024270d…8e9d`.
+- **Result:** `--probe` and `--probe --no-preload` both reported 0 ADLX GPUs (exit 3). The pre-load line read `Unresolved (atiadlxx.dll: disk path contains a relative segment)`.
+  - The bound INF's `[SourceDisksNames.amd64]` entry is `1 = %DiskId%,,,.\B026653`, and rc.1's resolver refused the `.` segment. So the app ran exactly the 1.0.0 path.
+  - **H3 is untested, not refuted.** No fan value was written.
+- **Fix (rc.2):** a `.` segment is a no-op, and `..` stays refused. New tests use the exact INF text and check resolver → planner end to end. The new `.` tests fail against the rc.1 resolver and pass with the fix. `DOTNET_ROLL_FORWARD=Major dotnet test LightweightAmdGpuFanControl.Tests` → **Passed: 173, Failed: 0**.
+- **Next:** E1 again on rc.2 (a new declaration). The rc.1 run is kept as a record, not retried.
+
 ## 2026-11-06 — v1.1.0-rc.1 release check (pre-hardware)
 
 - **Tag:** annotated `v1.1.0-rc.1` on `06e4724` (main, push run `42235778427` green). The tag run `42246782110` passed: build (tests, installer, CI-only signing) and release.

@@ -261,6 +261,23 @@ Purpose: return one named GPU's tuning to factory on demand. It covers GPUs left
   - the only GPU touched is the one matched by `uniqueId`;
   - `MarkClean` runs only after a confirmed reset.
 
+### Task 5c: D6, fail closed on fan-write errors (lead ruling 2026-11-08: option (a), no fork widening)
+
+The pinned SDK (ADLX 1.4) has no `ADLX_RESET_NEEDED` value, and the wrapper reports errors only as message text. So every `SetFanTuningStates` error is treated alike:
+
+- **At start or during the self-test:** refuse that GPU and write nothing more to it. Report it in `status.json` (a per-GPU issue carrying the wrapper's message text) and in the probe (where the probe can observe it).
+- **Mid-regulation:**
+  - stop regulating that GPU;
+  - release it once through `ReleasePlanner` (factory reset confirmed by `IsAtFactory` when `preAppAtFactory=true`, otherwise the points);
+  - mark it `degraded` in status;
+  - **never retry writes in a loop**. The GPU stays out of regulation for the rest of the run.
+
+Other GPUs are unaffected.
+
+**Tests:**
+- Core, a pure per-GPU state machine: `Regulating` → error → `Degraded` (release once); `Starting` or self-test → error → `Refused` (no release write beyond what the planner says for a GPU that was never written); no transition back to `Regulating`; no second release.
+- A source guard: the regulation loop checks the per-GPU state before every write, and the error handler calls the release exactly once.
+
 ### Task 6: Docs
 
 - [ ] README "how restore works"; CHANGELOG rc.3 entry with the 1.0.x known issue and the manual fix; `docs/agent-handoff.md`.

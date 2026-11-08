@@ -45,6 +45,12 @@ public class FanReleaseSourceGuardTests
     public void Release_GoesThroughReleasePlannerPlan()
     {
         Assert.Contains("ReleasePlanner.Plan(", FanController());
+        var runner = Runner();
+        // The runner restores only through FanController, so it shares the planner and writes nothing itself.
+        Assert.Contains("TryRestoreAutomatic", runner);
+        Assert.Contains("release action=", runner);
+        foreach (var token in new[] { "SetFanTuningStates", "SetZeroRPM", "ResetToFactory", "ManualFanTuning" })
+            Assert.DoesNotContain(token, runner);
     }
 
     [Fact]

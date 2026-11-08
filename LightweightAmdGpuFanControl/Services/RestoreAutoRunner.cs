@@ -90,10 +90,15 @@ internal static class RestoreAutoRunner
                 }
                 else if (fc.ChoiceKind == BaselineChoiceKind.Journal)
                 {
-                    if (fc.TryRestoreAutomatic())
+                    bool released = fc.TryRestoreAutomatic();
+                    var plan = fc.LastReleasePlan;
+                    log.Log($"restore-auto: release action={plan?.Action.ToString() ?? "none"} confirmed={(released ? "yes" : "no")} for '{name}'");
+                    if (released)
                     {
                         restored++;
                         log.Log($"restore-auto: restored '{name}'");
+                        if (plan != null && plan.ModeUnknown)
+                            log.Log($"restore-auto: '{name}' pre-app mode unknown; its saved fan points were re-applied. If the fan does not return to the driver's automatic control, reset GPU tuning in AMD Software.");
                     }
                     else
                     {

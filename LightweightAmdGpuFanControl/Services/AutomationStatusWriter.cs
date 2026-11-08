@@ -72,7 +72,7 @@ internal sealed class AutomationStatusWriter
         Write(AutomationStatus.Unavailable(_pid, _startedUtc, DateTime.UtcNow, _version, reason));
 
     public void Stopped() =>
-        Write(AutomationStatus.Stopped(_pid, _startedUtc, DateTime.UtcNow, _version));
+        Write(AutomationStatus.Stopped(_pid, _startedUtc, DateTime.UtcNow, _version, ReleaseIssueLog.Snapshot()));
 
     private void Write(AutomationStatus status)
     {

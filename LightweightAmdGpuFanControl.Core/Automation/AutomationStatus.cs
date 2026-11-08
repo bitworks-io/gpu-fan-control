@@ -18,6 +18,9 @@ public static class ReleaseIssues
     /// <summary>The GPU could not be confirmed back at the driver's automatic control; its journal entry stays dirty.</summary>
     public const string Incomplete = "release-incomplete";
 
+    /// <summary>Fan points were re-applied, but the driver could not say whether the GPU is back at its automatic control.</summary>
+    public const string Unconfirmed = "release-unconfirmed";
+
     public static string Format(string kind, string gpuName) => kind + ": " + gpuName;
 }
 

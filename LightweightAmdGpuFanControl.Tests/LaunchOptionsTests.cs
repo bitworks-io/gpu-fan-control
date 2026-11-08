@@ -159,4 +159,45 @@ public class LaunchOptionsTests
     {
         Assert.False(string.IsNullOrWhiteSpace(LaunchOptions.Parse(new[] { "--stop", "--restore-auto" }).Error));
     }
+
+    [Fact]
+    public void Parse_ResetTuningToFactory_WithGpu()
+    {
+        var o = LaunchOptions.Parse(new[] { "--reset-tuning-to-factory", "--gpu", "1234" });
+        Assert.Equal(LaunchMode.ResetTuningToFactory, o.Mode);
+        Assert.Equal(1234, o.GpuUniqueId);
+        Assert.Null(o.Error);
+        var neg = LaunchOptions.Parse(new[] { "--GPU", "-7", "--Reset-Tuning-To-Factory" });
+        Assert.Equal(-7, neg.GpuUniqueId);
+        Assert.Null(neg.Error);
+    }
+
+    [Fact]
+    public void Parse_ResetTuningToFactory_RequiresIntegerGpu()
+    {
+        Assert.NotNull(LaunchOptions.Parse(new[] { "--reset-tuning-to-factory" }).Error);
+        Assert.NotNull(LaunchOptions.Parse(new[] { "--reset-tuning-to-factory", "--gpu" }).Error);
+        Assert.NotNull(LaunchOptions.Parse(new[] { "--reset-tuning-to-factory", "--gpu", "--probe" }).Error);
+        Assert.NotNull(LaunchOptions.Parse(new[] { "--reset-tuning-to-factory", "--gpu", "abc" }).Error);
+        Assert.NotNull(LaunchOptions.Parse(new[] { "--reset-tuning-to-factory", "--gpu", "1.5" }).Error);
+    }
+
+    [Fact]
+    public void Parse_Gpu_RejectedWithoutResetMode()
+    {
+        Assert.NotNull(LaunchOptions.Parse(new[] { "--gpu", "3" }).Error);
+        Assert.NotNull(LaunchOptions.Parse(new[] { "--probe", "--gpu", "3" }).Error);
+        Assert.NotNull(LaunchOptions.Parse(new[] { "--restore-auto", "--gpu", "3" }).Error);
+    }
+
+    [Fact]
+    public void Parse_ResetTuningToFactory_ExclusiveWithEveryOtherMode()
+    {
+        foreach (var other in new[] { "--probe", "--restore-auto", "--stop" })
+        {
+            var o = LaunchOptions.Parse(new[] { "--reset-tuning-to-factory", "--gpu", "1", other });
+            Assert.NotNull(o.Error);
+        }
+        Assert.NotNull(LaunchOptions.Parse(new[] { "--reset-tuning-to-factory", "--gpu", "1", "--no-preload" }).Error);
+    }
 }

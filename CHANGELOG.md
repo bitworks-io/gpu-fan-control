@@ -32,6 +32,12 @@ Not validated on hardware yet.
     `releaseIssues`, and the journal entry stays dirty so `--restore-auto` can try again.
   - **Known issue in 1.0.x and rc.1/rc.2:** after the app exits, a GPU can be left under manual fan
     tuning with the curve it had at start. To undo it, reset GPU tuning for that card in AMD Software.
+- **rc.3: `--reset-tuning-to-factory --gpu <uniqueId>`** returns one named GPU to factory settings on
+  demand, for a card left under manual tuning by 1.0.x or rc.1/rc.2. It resets **ALL of this GPU's
+  tuning (clock, VRAM, power and fan) to factory settings, not only the fan**. There is no all-GPUs form.
+  Exit `0` reset and confirmed by IsAtFactory, `3` already at factory (nothing written), `4` app
+  running, `1` GPU not found, no manual fan tuning, or not confirmed. After a confirmed reset the GPU's
+  dirty legacy journal entry is cleared. Not validated on hardware yet.
 - **RDNA1 cards (RX 5700 / 5600 series) on machines whose System32 ADL/ADLX comes from a
   different AMD driver line than the one bound to the card.** ADLX opened but reported no GPU
   with manual fan tuning, and the ADL fallback found no fan interface. The app now loads the

@@ -118,6 +118,7 @@ Arguments are case-insensitive. Unknown arguments are logged and ignored.
 | `--automation [--status-file <fullpath>]` | Tray app with no modal dialogs; writes `status.json` | `0` graceful exit · `3` unavailable · `4` already running |
 | `--probe [--no-preload]` | Read-only capability report; no window, no fan writes | `0` controllable GPU · `3` none · `4` app running · `1` error |
 | `--restore-auto` | One-shot restore of the journaled pre-app fan state | `0` restored · `3` nothing to restore · `4` app running · `1` error |
+| `--reset-tuning-to-factory --gpu <uniqueId>` | One-shot: resets **ALL of this GPU's tuning (clock, VRAM, power and fan) to factory settings, not only the fan**, for the one GPU with that ADLX `uniqueId` (shown by `--probe`); confirms it with IsAtFactory. No all-GPUs form | `0` reset and confirmed · `3` already at factory (nothing written) · `4` app running · `1` GPU not found, no manual fan tuning, or not confirmed |
 | `--stop` | Asks a running instance to exit gracefully (restores every backend) and waits up to 20 s; never kills | `0` stopped · `3` not running · `1` timeout or older running build |
 
 `--probe` exits `0` only when ADLX manual fan tuning is supported; ADL adapters are
@@ -127,8 +128,8 @@ reported but not counted.
 before passing `--stop`, `--restore-auto` or `--probe`. An older build ignores unknown
 arguments and starts the tray app, including its "already running" dialog.
 
-Exit `2` is a usage error (no UI): any two of `--probe`, `--restore-auto` and `--stop`, or
-`--no-preload` without `--probe`. `--automation` combined with `--probe` or `--restore-auto` is accepted.
+Exit `2` is a usage error (no UI): any two of `--probe`, `--restore-auto`, `--stop` and `--reset-tuning-to-factory`,
+`--no-preload` without `--probe`, `--reset-tuning-to-factory` without an integer `--gpu`, or `--gpu` without it. `--automation` combined with `--probe` or `--restore-auto` is accepted.
 
 Files are written to `%LOCALAPPDATA%\Bitworks\LightweightAmdGpuFanControl`:
 `log.txt`, `probe-<yyyyMMddTHHmmssZ>.txt` (`--probe`), `status.json` (`--automation`)
@@ -209,6 +210,12 @@ or `--restore-auto`:
   `--restore-auto` can retry. `--probe` shows `tuningAtFactory` per GPU and `preAppAtFactory` per journal entry.
 
 A GPU the app never wrote to is left untouched on exit.
+
+**GPUs left under manual tuning by 1.0.x or rc.1/rc.2:** run
+`--reset-tuning-to-factory --gpu <uniqueId>` (read the id from `--probe`) with the app closed. It resets
+**ALL of this GPU's tuning (clock, VRAM, power and fan) to factory settings, not only the fan**, so use it only if
+you have no tuning of your own on that card. It does nothing if the GPU already reads as factory, and after a
+confirmed reset it clears that GPU's old journal entry. Afterwards `--probe` shows `tuningAtFactory=yes`.
 
 ## Troubleshooting: "Fan Control Not Working?"
 

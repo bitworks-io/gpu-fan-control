@@ -19,6 +19,10 @@ Not validated on hardware yet.
 - **Fan state left behind after a forced stop, crash or uninstall.** The pre-app fan state is
   journaled to `baseline.json`; the next start (or `--restore-auto`) returns to it instead of
   re-applying the killed run's manual curve. ADLX only.
+- **rc.2: the bound-package lookup now accepts a `.\` disk path.** The RDNA1/2 driver package
+  lists its library folder as `.\B026653`. rc.1 refused any `.` path segment, so the pre-load
+  never ran and the app behaved like 1.0.0. `..`, UNC paths, drive letters and `%tokens%` are
+  still refused.
 
 ### Added
 

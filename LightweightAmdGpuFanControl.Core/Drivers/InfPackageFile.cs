@@ -87,8 +87,10 @@ public static class InfPackageFile
         }
         foreach (var seg in value.Split('\\'))
         {
-            if (seg.Length == 0) continue;
-            if (seg == "." || seg == "..") return $"{what} contains a relative segment";
+            // "." is the INF convention for "the package folder" (the RDNA1/2 package ships ".\B026653") and cannot
+            // leave it, so it is a no-op. ".." could leave the package folder and stays refused.
+            if (seg.Length == 0 || seg == ".") continue;
+            if (seg == "..") return $"{what} contains a parent-folder segment";
             into.Add(seg);
         }
         return null;

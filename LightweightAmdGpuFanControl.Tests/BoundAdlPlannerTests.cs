@@ -21,6 +21,19 @@ public class BoundAdlPlannerTests
         AdlxTrusted = true,
     };
 
+    // End to end with the INF the RDNA1/2 package ships: the resolver's paths must pass the planner's DriverStore checks.
+    [Fact]
+    public void Decide_FieldInfResolvedPaths_Preload()
+    {
+        var lines = new[] { "[SourceDisksNames.amd64]", @"1 = %DiskId%,,,.\B026653", "[SourceDisksFiles]", "atiadlxx.dll=1", "amdadlx64.dll=1" };
+        var f = Good();
+        f.AtiadlxxPath = InfPackageFile.Resolve(f.StoreInfPath!, lines, "atiadlxx.dll").Path;
+        f.AdlxPath = InfPackageFile.Resolve(f.StoreInfPath!, lines, "amdadlx64.dll").Path;
+        Assert.Equal(Pkg + @"B026653\atiadlxx.dll", f.AtiadlxxPath);
+        Assert.Equal(Pkg + @"B026653\amdadlx64.dll", f.AdlxPath);
+        Assert.Equal(BoundAdlKind.Preload, BoundAdlPlanner.Decide(f).Kind);
+    }
+
     [Fact]
     public void Decide_NoDevices_NoAmdDisplay()
     {

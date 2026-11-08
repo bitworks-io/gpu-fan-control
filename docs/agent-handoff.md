@@ -56,7 +56,7 @@ This document is for the next implementation agent (Codex, Claude Code, or human
     - `Services/RestoreAutoRunner.cs`: `--restore-auto` one-shot.
     - `Services/AppPaths.cs`: data-folder file paths.
   - 1.1.0 files (Core): `Cli/LaunchOptions.cs` (arguments, `ExitCodes`), `Automation/AutomationStatus.cs` (`status.json` model, `StatusFilePath`), `Diagnostics/ProbeReport.cs`, `Drivers/` (`BoundAdlPlanner`, `InfPackageFile`, `AmdSignerPin`, `OverdriveRouting`), `Recovery/BaselineJournal.cs`, `IO/AtomicFile.cs`.
-- `LightweightAmdGpuFanControl.Tests/` (**net8.0** xUnit): 161 tests over policy, settings, enablement, the 1.1.0 Core logic and the `--probe` / `--stop` source guards.
+- `LightweightAmdGpuFanControl.Tests/` (**net8.0** xUnit): 176 tests over policy, settings, enablement, the 1.1.0 Core logic and the `--probe` / `--stop` source guards.
 - `external/ADLX/` (submodule): AMD ADLX SDK + C# wrapper. `ManualFanTuning.Reset()` captures/restores pre-app fan state.
 
 ## Local And Hosted Test Commands
@@ -64,7 +64,7 @@ This document is for the next implementation agent (Codex, Claude Code, or human
 ```sh
 # Core unit tests (runnable on macOS/Linux; only .NET 10 runtime here, so roll-forward)
 DOTNET_ROLL_FORWARD=Major dotnet test LightweightAmdGpuFanControl.Tests/LightweightAmdGpuFanControl.Tests.csproj -c Release --nologo
-# → Passed! Failed: 0, Passed: 161
+# → Passed! Failed: 0, Passed: 176
 ```
 
 Local net48 app compile (needs `git submodule update --init external/ADLX`; `AdlxBindPath` may point at any existing file). Expected: 0 errors.
@@ -150,10 +150,10 @@ Latest installer for testing: CI run `28686185843` artifact `LightweightAmdGpuFa
 ## 1.1.0 status
 
 - **Implementation: done** and committed on the 1.1.0 branch (plan Tasks 1-9). Core unit tests and the local net48 compile pass; CI is the Windows build and installer gate.
-- **No hardware validation has run.** Declared experiments E1 (read-only probe on an RDNA1 card), E2 (controlled engagement on RDNA1) and E3 (automation-driven regression across generations) are pending approval; none runs before it is approved. Definitions: [plan section 6](superpowers/plans/2026-11-06-rdna1-fan-control.md#6-hardware-validation--declared-experiments).
+- **Hardware validation:** E1 ran on rc.1 (2026-11-08) and **failed on an rc.1 defect**: the bound-package lookup refused the RDNA1/2 INF's `.\B026653` disk path, so the pre-load never ran. H3 is still untested. rc.2 fixes the lookup ([verification evidence](verification-evidence.md)). E1 is re-declared on rc.2. E2 (controlled engagement on RDNA1) and E3 (automation-driven regression across generations) follow, each approved before it runs. E2 also needs a live temperature source that doesn't load the System32 AMD libraries. Definitions: [plan section 6](superpowers/plans/2026-11-06-rdna1-fan-control.md#6-hardware-validation--declared-experiments).
 - **Release sequence** ([plan section 5](superpowers/plans/2026-11-06-rdna1-fan-control.md#5-release-and-rollout)):
   1. The implementation PR stays a draft until reviewed, then merges with CI green.
-  2. Ask before the first rc tag. Tag `v1.1.0-rc.1`; CI signs it and publishes a prerelease. Confirm it shows Pre-release and that `releases/latest` is still v1.0.0.
+  2. Ask before the first rc tag. Tag `v1.1.0-rc.N` (rc.1 shipped 2026-11-06, rc.2 carries the INF fix); CI signs it and publishes a prerelease. Confirm it shows Pre-release and that `releases/latest` is still v1.0.0.
   3. Run E1, then E2 and E3, each approved first.
   4. Tag `v1.1.0` on the validated code (or a docs-only commit after it); CI signs it and publishes the latest release. Promoting the final tag is the rollout switch for downstream installs.
   - `VERSION` stays `1.1.0` for rc tags. Never re-run a failed tag; cut the next rc. Sign in CI only.

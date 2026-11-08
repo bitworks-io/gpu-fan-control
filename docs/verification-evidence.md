@@ -40,6 +40,29 @@ gh run download <run-id> -n LightweightAmdGpuFanControl-Setup
 - Skipped checks and reason: installer signing (no cert secret); all on-hardware behavior (no AMD GPU on this macOS host).
 - Residual risk: **all runtime fan behavior, restore-to-auto, and the no-admin assumption are unverified** — they require a real AMD Windows PC (Phase 5 checklist in `agent-handoff.md`).
 
+## 2026-11-08 — E1 (read-only probe) on rc.1: FAIL, rc.1 resolver defect; fixed for rc.2
+
+- **Setup:** an RX 5700 XT (RDNA1) bound to the RDNA1/2 driver package (32.0.21045.16010), with System32 holding the RDNA3/4 package's `atiadlxx.dll` (7.26.20.1616) and `amdadlx64.dll` (1.5.0.124). That is the field mismatch. Declared and approved beforehand per plan §6, and run as the interactive user. Bench details are kept in private records.
+- **Step 0 passed on the bench:** `Get-AuthenticodeSignature` showed `Valid`, signer `O=Bitworks LLC`, SHA-256 `8024270d…8e9d`.
+- **Result:** `--probe` and `--probe --no-preload` both reported 0 ADLX GPUs (exit 3). The pre-load line read `Unresolved (atiadlxx.dll: disk path contains a relative segment)`.
+  - The bound INF's `[SourceDisksNames.amd64]` entry is `1 = %DiskId%,,,.\B026653`, and rc.1's resolver refused the `.` segment. So the app ran exactly the 1.0.0 path. The captured INF also lists `amdadlx64.dll=1`, `atiadlxx.dll=1` and `atiadlxy.dll=1` under `[SourceDisksFiles]`, and both DLLs are present in `B026653` (`atiadlxx.dll` 7.25.10.1590, `amdadlx64.dll` 1.4.0.121). The test fixture is that text.
+  - **H3 is untested, not refuted.** No fan value was written.
+- **Fix (rc.2):** a `.` segment is a no-op, and `..` stays refused. New tests use the exact INF text and check resolver → planner end to end. The new `.` tests fail against the rc.1 resolver and pass with the fix. `DOTNET_ROLL_FORWARD=Major dotnet test LightweightAmdGpuFanControl.Tests` → **Passed: 176, Failed: 0**.
+- **Next:** E1 again on rc.2 (a new declaration). The rc.1 run is kept as a record, not retried.
+
+## 2026-11-06 — v1.1.0-rc.1 release check (pre-hardware)
+
+- **Tag:** annotated `v1.1.0-rc.1` on `06e4724` (main, push run `42235778427` green). The tag run `42246782110` passed: build (tests, installer, CI-only signing) and release.
+- **GitHub:** `prerelease: true`, `draft: false`; `releases/latest` is still `v1.0.0`.
+- **Installer:** `LightweightAmdGpuFanControl-Setup.exe`, 2,759,880 bytes, SHA-256 `8024270d9ff312d1d6d520a524f2d9e97d3441954ac1551f2b47aaadb3a68e9d`. This matches GitHub's asset digest. PE32 GUI, ProductVersion `1.1.0`.
+- **Authenticode, checked on macOS:**
+  - The PE image hash equals the signed digest, and messageDigest equals the hash of the signed content.
+  - The RSA signature over the signed attributes verifies with the signer certificate.
+  - Signer: `O=Bitworks LLC, CN=Bitworks LLC`, issued by Microsoft ID Verified CS AOC CA 03, then PCA 2021, then the Identity Verification Root 2020. The chain is consistent within the certificate bag.
+  - It carries an RFC 3161 timestamp at 2026-11-06T15:54:18Z, inside the leaf certificate's 3-day validity.
+  - v1.0.0's leaf was issued by EOC CA 04 rather than AOC CA 03, because Azure Artifact Signing rotates its intermediates. This does not affect the downstream installer's publisher check. That check is `WinVerifyTrust` with the full chain to a trusted root, plus the leaf subject `O=Bitworks LLC`. It compares no issuer, serial or thumbprint.
+- **Not checked:** trust in the Windows trust store, and the timestamp token's own signature. Both are covered by E1 Step 0 (`Get-AuthenticodeSignature` on the bench before anything is installed).
+
 ## 2026-11-06 — 1.1.0 implementation (pre-hardware)
 
 - **Core unit tests:** `DOTNET_ROLL_FORWARD=Major dotnet test LightweightAmdGpuFanControl.Tests` → **Passed: 161, Failed: 0** (net8.0). Covers the INF resolver, bound-line planner, signer pin, Overdrive routing, launch options and exit codes (including `--stop`), probe report, `status.json` model and `--status-file` validation, atomic file write, the restore journal and its staleness classification, and source guards for `--probe` (no fan writes) and `--stop` (open-only, never kills).

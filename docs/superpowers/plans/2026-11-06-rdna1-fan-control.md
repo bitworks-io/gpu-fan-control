@@ -291,9 +291,13 @@ Each experiment below is a template. The lead fills in the bench, card and build
 
 **E1 — Probe (read-only with respect to fan state)**
 - **Hypothesis:** H3. With the bound copies pre-loaded, ADLX reports manual fan tuning supported for the RDNA1 card. With `--no-preload` it reports unsupported, which reproduces the field failure.
+- **Step 0 — trust anchor (read-only, before anything is installed):** on the target bench, run `Get-AuthenticodeSignature` on the downloaded installer.
+  - It must show `Status` `Valid` and a signer certificate subject of Bitworks LLC.
+  - The file's SHA-256 must equal the one recorded when the release was verified.
+  - Otherwise stop: nothing is installed and E1 does not run. This anchors the signature in the Windows trust store, which the post-release check on macOS cannot do.
 - **Inputs:**
   - an approved RDNA1 card on a bench already in the mismatch state (RDNA1/2 bound, RDNA3/4 in System32);
-  - the signed `v1.1.0-rc.1` installer, SHA-256 recorded;
+  - the signed rc installer under test (`v1.1.0-rc.N`; rc.1 ran on 2026-11-08 and failed on the `.\` resolver defect, so E1 re-runs on rc.2), SHA-256 recorded;
   - the card idle and the fan-control utility not running;
   - no bench job running, with the automation's own GPU sensor polling idle (it also loads ADL), and no other GPU tools.
   - Run as the bench's interactive user, in that user's session: `--probe`, then `--probe --no-preload`. The declaration names how it is launched in that session.

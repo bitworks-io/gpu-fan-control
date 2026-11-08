@@ -143,6 +143,97 @@ public class InfPackageFileTests
         Assert.EndsWith(@"\B026653\atiadlxx.dll", r.Path);
     }
 
+    // The INF the RDNA1/2 package actually ships (u0205305.inf, driver 32.0.21045.16010): the disk path is ".\B026653",
+    // with the names in the amd64 section and the files in the plain one. rc.1 refused the "." and never pre-loaded.
+    private static readonly string[] FieldInf = Lines(
+        "[SourceDisksNames.amd64]", @"1 = %DiskId%,,,.\B026653",
+        "[SourceDisksFiles]", "atiadlxx.dll=1", "amdadlx64.dll=1", "atiadlxy.dll=1");
+
+    [Theory]
+    [InlineData("atiadlxx.dll")]
+    [InlineData("amdadlx64.dll")]
+    public void Resolve_FieldInfDotPrefixedDiskPath_Resolves(string file)
+    {
+        var r = InfPackageFile.Resolve(Inf, FieldInf, file);
+        Assert.Null(r.Reason);
+        Assert.Equal(Folder + @"\B026653\" + file, r.Path);
+    }
+
+    [Fact]
+    public void Resolve_DotOnlyDiskPath_UsesPackageFolder()
+    {
+        var r = InfPackageFile.Resolve(Inf, Lines(
+            "[SourceDisksNames]", "1 = D,,,.",
+            "[SourceDisksFiles]", "atiadlxx.dll = 1"), "atiadlxx.dll");
+        Assert.Equal(Folder + @"\atiadlxx.dll", r.Path);
+    }
+
+    [Fact]
+    public void Resolve_DotSegmentInSubdir_IsNoOp()
+    {
+        var r = InfPackageFile.Resolve(Inf, Lines(
+            "[SourceDisksNames.amd64]", @"1 = D,,,.\B026653",
+            "[SourceDisksFiles.amd64]", @"atiadlxx.dll = 1,.\sub\."), "atiadlxx.dll");
+        Assert.Equal(Folder + @"\B026653\sub\atiadlxx.dll", r.Path);
+    }
+
+    [Theory]
+    [InlineData(@".\.\B026653", @"\B026653\atiadlxx.dll")]
+    [InlineData(@"B026653\.\x", @"\B026653\x\atiadlxx.dll")]
+    [InlineData(@"\.\B026653\.", @"\B026653\atiadlxx.dll")]
+    public void Resolve_DotSegmentsAnywhere_AreNoOps(string diskPath, string expectedTail)
+    {
+        var r = InfPackageFile.Resolve(Inf, Lines(
+            "[SourceDisksNames]", "1 = D,,," + diskPath,
+            "[SourceDisksFiles]", "atiadlxx.dll = 1"), "atiadlxx.dll");
+        Assert.Null(r.Reason);
+        Assert.Equal(Folder + expectedTail, r.Path);
+    }
+
+    [Theory]
+    [InlineData(@"..\B026653")]
+    [InlineData(@"B026653\..\..\x")]
+    [InlineData(@".\B026653\..")]
+    public void Resolve_ParentSegment_StillRefused(string diskPath)
+    {
+        AssertRefused(InfPackageFile.Resolve(Inf, Lines(
+            "[SourceDisksNames]", "1 = D,,," + diskPath,
+            "[SourceDisksFiles]", "atiadlxx.dll = 1"), "atiadlxx.dll"));
+    }
+
+    [Fact]
+    public void Resolve_ParentSegment_ReasonNamesIt()
+    {
+        var r = InfPackageFile.Resolve(Inf, Lines(
+            "[SourceDisksNames]", @"1 = D,,,.\..\evil",
+            "[SourceDisksFiles]", "atiadlxx.dll = 1"), "atiadlxx.dll");
+        Assert.Null(r.Path);
+        Assert.Contains("parent-folder segment", r.Reason);
+    }
+
+    // Only an exact "." or ".." is relative on Windows; "..." or ". ." is a literal folder name inside the package.
+    [Theory]
+    [InlineData(@"...", @"\...\atiadlxx.dll")]
+    [InlineData(@". .\B026653", @"\. .\B026653\atiadlxx.dll")]
+    public void Resolve_DotLookalikes_AreLiteralFoldersInsideThePackage(string diskPath, string expectedTail)
+    {
+        var r = InfPackageFile.Resolve(Inf, Lines(
+            "[SourceDisksNames]", "1 = D,,," + diskPath,
+            "[SourceDisksFiles]", "atiadlxx.dll = 1"), "atiadlxx.dll");
+        Assert.Equal(Folder + expectedTail, r.Path);
+    }
+
+    [Fact]
+    public void Resolve_DotDotAfterDot_StillRefused()
+    {
+        AssertRefused(InfPackageFile.Resolve(Inf, Lines(
+            "[SourceDisksNames]", @"1 = D,,,.\..\evil",
+            "[SourceDisksFiles]", "atiadlxx.dll = 1"), "atiadlxx.dll"));
+        AssertRefused(InfPackageFile.Resolve(Inf, Lines(
+            "[SourceDisksNames]", @"1 = D,,,.\B026653",
+            "[SourceDisksFiles]", @"atiadlxx.dll = 1,.\.."), "atiadlxx.dll"));
+    }
+
     [Fact]
     public void Resolve_EmptyDiskPath_UsesPackageFolder()
     {

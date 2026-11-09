@@ -2,7 +2,7 @@
 
 **Goal:** an uninstall must never hang, and never leave a fan under app control, after any install history that includes a 1.1 build. That includes histories where an older 1.0.x was installed over it later (a "downgrade"). Existing machines already in that state must be made safe too, not only future installs.
 
-**Status:** plan only, for review. No code until it's approved.
+**Status:** direction D approved by review (2026-11-09), with the conditions in §7. No code yet; the order is in §7.
 
 ## 1. What happens (evidence)
 
@@ -48,13 +48,13 @@
   - The uninstall completes.
 - **D must NOT** turn the recorded `--stop` into a no-op while a 1.0.2 tray is running. The following `taskkill /F` would then kill it with no restore and leave the fan on its curve. That's why `--stop` has to be the real graceful stop, not "exit 3".
 
-### H1. 1.1 `PrepareToInstall`: a graceful stop before the kill (upgrade path)
+### H1. 1.1 `PrepareToInstall`: a graceful stop before the kill (upgrade path), deferred to 1.1.1 (§7)
 
 - **Today:** an over-install `taskkill`s a running instance, with no restore. The new app then captures its pre-app baseline from a GPU that is NOT at factory (the killed app's curve). On release it re-applies those points instead of a factory reset, as already seen after an earlier test build's pinned curve came back.
 - **Change:** if the installed exe is ≥ 1.1 (`GetVersionNumbersString` on `{app}\…exe`, which is the new installer's own `[Code]`, so it does run), run `--stop` and wait for it, THEN `taskkill` as a fallback.
 - For a running 1.0.x there's no graceful path. Keep the kill, and document the factory-reset step (`--reset-tuning-to-factory`) for that rare upgrade-while-running case.
 
-### H2. 1.1 `[UninstallRun]`: add `skipifdoesntexist`
+### H2. 1.1 `[UninstallRun]`: add `skipifdoesntexist`, deferred to 1.1.1 (§7)
 
 `skipifdoesntexist` on the two exe entries, so an uninstall after the exe was removed or renamed doesn't error. It's harmless and future-proofing; it doesn't address the downgrade by itself.
 
@@ -83,3 +83,30 @@
 1. Is a v1.0.2 release acceptable on the 1.0 line: a new `release/1.0.x` branch from `v1.0.1`, with signed CI release from that branch?
 2. Must B be resolved before the rc.3 tag, or can rc.3 be tagged with B documented, given that D lands on the 1.0 line independently?
 3. Should H1 go into rc.3, or into 1.1.1?
+
+## 7. Review decisions and conditions (2026-11-09)
+
+- **D is approved, with a minimal scope.**
+  - No-argument behaviour is byte-identical to v1.0.1.
+  - The only changes are the argument dispatch, the backported `StopSignal` / `StopCommand`, and any other `--*` → exit 3 with no mutex, tray or modal.
+- **Release dependency: the bench automation's approved-installer list.**
+  - The bench agent installs only installers whose SHA-256 is on its approved list, which is served by the bench plugin.
+  - v1.0.2's signed installer SHA has to be added by a plugin release, deployed BEFORE v1.0.2 becomes `releases/latest`. Otherwise every bench refuses it.
+  - That step is owned by the plugin release process and routed separately.
+- **Validation before ANY publish:**
+  1. the unit tests in §5;
+  2. the CI repro with S5-with-1.0.2 ASSERTING, plus the new S6;
+  3. one declared hardware check on a GPU that 1.0.x supports (RDNA2/RDNA3): normal tray regulation is unchanged, and `--stop` restores the driver's automatic fan control.
+- **Approvals:** the push, the PR, the tag and the publish of v1.0.2 each need the owner's explicit approval. A signed `releases/latest` is a production publication.
+- **The rc.3 pre-release tag waits for B's evidence:**
+  - v1.0.2 is released AND S5-with-1.0.2 asserts green in CI;
+  - the tag goes on a commit whose app source and installer are identical to the tree of the build that passed the RDNA1 regulation test (merge commit `23bd53cf`). Harness-only commits in between are fine; the tag record states the tree-equality check.
+- **H1 and H2 are NOT in rc.3.** They change the installer of the build that just passed. They go into 1.1.1 (or a later rc) with their own tests and hardware check.
+- **Order:**
+  1. land the CI-harness fix and get S1–S5 running cleanly;
+  2. build v1.0.2 locally on `release/1.0.x`, with tests;
+  3. add S5-with-1.0.2 (asserting) and S6;
+  4. review;
+  5. the declared hardware check;
+  6. the owner's bundled approval: push, PR, tag, publish, and the approved-list plugin release.
+- **Machines in the downgrade state:** once v1.0.2 is approved, published and on the approved list, the bench agent over-installs it at startup. After an S5-style check, the over-install-only rule can be lifted there.

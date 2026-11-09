@@ -809,12 +809,8 @@ function Invoke-Scenario {
     }
 
     $assertFailed = $assert -and ($failures.Count -gt 0)
-    $result = [ordered]@{
-        scenario = $Scenario; variant = $variant; note = $def.Note; asserted = $assert; history = $def.Steps
-        batchLogon = $batch
-        verdict = $(if ($failures.Count -eq 0) { 'OK' } elseif ($assert) { 'FAIL' } else { 'REPORTED-ANOMALY' })
-        failures = @($failures); skipReason = $skipReason; steps = @($steps)
-    }
+    $result = New-ScenarioResult -Scenario $Scenario -Variant $variant -Def $def -Assert $assert -Batch $batch `
+        -Failures $failures -SkipReason $skipReason -Steps $steps
     Write-Json $result (Join-Path $outDir 'result.json')
     Write-ScenarioSummary $result
     if ($assertFailed) {
@@ -822,6 +818,19 @@ function Invoke-Scenario {
         exit 1
     }
     exit 0
+}
+
+function New-ScenarioResult {
+    <# The scenario's result.json content. Tested by Test-Harness.ps1.
+       The generic lists are copied with ToArray(): wrapping a List[object] in @() throws "Argument types do
+       not match" (seen in Windows PowerShell 5.1 and pwsh 7), which killed every scenario of run 42675308728. #>
+    param($Scenario, $Variant, $Def, $Assert, $Batch, $Failures, $SkipReason, $Steps)
+    [ordered]@{
+        scenario = $Scenario; variant = $Variant; note = $Def.Note; asserted = $Assert; history = $Def.Steps
+        batchLogon = $Batch
+        verdict = $(if ($Failures.Count -eq 0) { 'OK' } elseif ($Assert) { 'FAIL' } else { 'REPORTED-ANOMALY' })
+        failures = $Failures.ToArray(); skipReason = $SkipReason; steps = $Steps.ToArray()
+    }
 }
 
 function Write-ScenarioSummary {

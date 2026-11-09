@@ -37,6 +37,14 @@ jobs:
         with:
           submodules: recursive
 
+      # The driver's own result building, under Windows PowerShell 5.1 (the shell every scenario uses).
+      # Fails fast: a harness that cannot write result.json would turn every scenario into a harness error.
+      - name: Harness self-test (Windows PowerShell 5.1)
+        shell: powershell
+        run: |
+          & "$env:GITHUB_WORKSPACE\tools\uninstall-repro\Test-Harness.ps1"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       # Where the "test build" installer comes from.
       #   - Dispatch with build_run_id: download that run's artifact (needs actions: read).
       #   - Otherwise (every PR, or dispatch without an id): build the installer in this job with the

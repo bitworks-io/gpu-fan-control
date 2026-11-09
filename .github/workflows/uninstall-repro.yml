@@ -1,0 +1,185 @@
+name: Uninstall Repro
+
+# Reproduces the silent-uninstall failure seen on a bench (unins000.exe /VERYSILENT exited 1 after
+# about 2 minutes with no log) across several over-install histories, as a non-elevated standard user.
+# Diagnostic only: no product change. Scenarios S1 and S4 are controls and are asserted; S2, S3 and
+# S5 are the experiment and are reported, not asserted. See
+# docs/superpowers/plans/2026-11-09-rc3-ramp-hysteresis-and-uninstall-repro.md (Part B).
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_run_id:
+        description: >-
+          Optional run id of a Build Windows Installer run whose LightweightAmdGpuFanControl-Setup
+          artifact is tested. Leave empty to build the installer in this run.
+        required: false
+        type: string
+  pull_request:
+    paths:
+      - 'installer/**'
+      - '.github/workflows/uninstall-repro.yml'
+      - 'tools/uninstall-repro/**'
+
+permissions:
+  contents: read
+  actions: read   # only used to download an artifact from another run (build_run_id)
+
+jobs:
+  repro:
+    runs-on: windows-latest
+    timeout-minutes: 150
+    env:
+      WORK_ROOT: C:\repro-work
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      # Where the "test build" installer comes from.
+      #   - Dispatch with build_run_id: download that run's artifact (needs actions: read).
+      #   - Otherwise (every PR, or dispatch without an id): build the installer in this job with the
+      #     same steps as build-windows.yml, minus tests and signing. Chosen over cross-run artifact
+      #     download for PRs because a PR run cannot know the sibling build-windows run's id, and
+      #     waiting for/polling that run is fragile. The cost is a few minutes of build time; the
+      #     result is the same unsigned installer build-windows.yml uploads on a PR.
+      - name: Download installer from an earlier build run
+        if: ${{ github.event.inputs.build_run_id != '' }}
+        uses: actions/download-artifact@v7
+        with:
+          name: LightweightAmdGpuFanControl-Setup
+          path: ${{ runner.temp }}\test-installer
+          run-id: ${{ github.event.inputs.build_run_id }}
+          github-token: ${{ github.token }}
+
+      - name: Setup .NET
+        if: ${{ github.event.inputs.build_run_id == '' }}
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Setup MSBuild
+        if: ${{ github.event.inputs.build_run_id == '' }}
+        uses: microsoft/setup-msbuild@v3
+
+      - name: Install build tools
+        if: ${{ github.event.inputs.build_run_id == '' }}
+        shell: powershell
+        run: |
+          choco install swig innosetup -y
+
+      - name: Build installer (unsigned, as build-windows.yml)
+        if: ${{ github.event.inputs.build_run_id == '' }}
+        shell: powershell
+        run: |
+          .\build.ps1
+
+      - name: Record Inno Setup compiler version
+        if: ${{ github.event.inputs.build_run_id == '' }}
+        shell: pwsh
+        run: |
+          $iscc = (Get-Command iscc -ErrorAction SilentlyContinue).Source
+          if (-not $iscc) { $iscc = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe' }
+          $ver = (Get-Item -LiteralPath $iscc).VersionInfo.ProductVersion
+          $banner = ((& $iscc '/?' 2>&1 | Select-Object -First 3) -join ' ').Trim()
+          $line = "Inno Setup compiler for the in-job build: $ver ($banner)"
+          Write-Host $line
+          New-Item -ItemType Directory -Force -Path "$env:WORK_ROOT\out" | Out-Null
+          $line | Set-Content "$env:WORK_ROOT\out\inno-compiler.txt"
+          "- Inno Setup compiler (in-job build): ``$ver``" | Add-Content $env:GITHUB_STEP_SUMMARY
+
+      - name: Locate test installer
+        id: testinst
+        shell: pwsh
+        run: |
+          $dl = Join-Path $env:RUNNER_TEMP 'test-installer\LightweightAmdGpuFanControl-Setup.exe'
+          $built = Join-Path $env:GITHUB_WORKSPACE 'output\LightweightAmdGpuFanControl-Setup.exe'
+          $exe = if (Test-Path $dl) { $dl } elseif (Test-Path $built) { $built } else { throw 'No test installer found' }
+          $sha = (Get-FileHash -Algorithm SHA256 -LiteralPath $exe).Hash.ToLowerInvariant()
+          $len = (Get-Item $exe).Length
+          Write-Host "test installer: $exe ($len bytes, sha256 $sha)"
+          "TEST_INSTALLER=$exe" | Add-Content $env:GITHUB_ENV
+          "### Installers under test`n`n- test build: ``$sha`` ($len B)" | Add-Content $env:GITHUB_STEP_SUMMARY
+
+      - name: Download and verify v1.0.0 and v1.0.1 installers
+        shell: pwsh
+        run: |
+          $expected = @{
+            'v1.0.0' = '66324233b24106de8d3d82336f8fcbebd5ff452d18c0ad221675ea605acfbfcb'
+            'v1.0.1' = '8bebfa415c09ed31afa1f86c4db5ade67cfa2f37cb1667e4255c77c7ca815888'
+          }
+          $dir = Join-Path $env:RUNNER_TEMP 'release-installers'
+          New-Item -ItemType Directory -Force -Path $dir | Out-Null
+          foreach ($tag in $expected.Keys) {
+            $dest = Join-Path $dir "$tag.exe"
+            $url = "https://github.com/bitworks-io/gpu-fan-control/releases/download/$tag/LightweightAmdGpuFanControl-Setup.exe"
+            Invoke-WebRequest -Uri $url -OutFile $dest -UseBasicParsing
+            $sha = (Get-FileHash -Algorithm SHA256 -LiteralPath $dest).Hash.ToLowerInvariant()
+            $len = (Get-Item $dest).Length
+            if ($sha -ne $expected[$tag]) {
+              throw "$tag installer SHA-256 mismatch: got $sha, expected $($expected[$tag])"
+            }
+            Write-Host "$tag OK ($len bytes, sha256 $sha)"
+            "- ${tag}: ``$sha`` ($len B)" | Add-Content $env:GITHUB_STEP_SUMMARY
+          }
+          "V100_INSTALLER=$(Join-Path $dir 'v1.0.0.exe')" | Add-Content $env:GITHUB_ENV
+          "V101_INSTALLER=$(Join-Path $dir 'v1.0.1.exe')" | Add-Content $env:GITHUB_ENV
+          "REPRO_READY=true" | Add-Content $env:GITHUB_ENV
+
+      # S1 and S4 (the controls) run first and are asserted: they fail on anything but success. S2, S3, S5 report the exact outcome and always exit 0. Every scenario
+      # step runs even if an earlier one failed, so one run yields the full picture.
+      - name: S1 - test build only (control, asserted)
+        if: ${{ !cancelled() && env.REPRO_READY == 'true' }}
+        shell: powershell
+        run: |
+          & "$env:GITHUB_WORKSPACE\tools\uninstall-repro\Run-Scenario.ps1" -Scenario S1 `
+            -TestInstaller $env:TEST_INSTALLER -V100Installer $env:V100_INSTALLER -V101Installer $env:V101_INSTALLER `
+            -WorkRoot $env:WORK_ROOT -TimeoutSec 300
+
+      - name: S4 - v1.0.0, v1.0.1 (release-only control, asserted)
+        if: ${{ !cancelled() && env.REPRO_READY == 'true' }}
+        shell: powershell
+        run: |
+          & "$env:GITHUB_WORKSPACE\tools\uninstall-repro\Run-Scenario.ps1" -Scenario S4 `
+            -TestInstaller $env:TEST_INSTALLER -V100Installer $env:V100_INSTALLER -V101Installer $env:V101_INSTALLER `
+            -WorkRoot $env:WORK_ROOT -TimeoutSec 300
+
+      - name: S2 - test build, test build (reported)
+        if: ${{ !cancelled() && env.REPRO_READY == 'true' }}
+        shell: powershell
+        run: |
+          & "$env:GITHUB_WORKSPACE\tools\uninstall-repro\Run-Scenario.ps1" -Scenario S2 `
+            -TestInstaller $env:TEST_INSTALLER -V100Installer $env:V100_INSTALLER -V101Installer $env:V101_INSTALLER `
+            -WorkRoot $env:WORK_ROOT -TimeoutSec 300
+
+      - name: S3 - v1.0.0, v1.0.1, test build, test build (reported)
+        if: ${{ !cancelled() && env.REPRO_READY == 'true' }}
+        shell: powershell
+        run: |
+          & "$env:GITHUB_WORKSPACE\tools\uninstall-repro\Run-Scenario.ps1" -Scenario S3 `
+            -TestInstaller $env:TEST_INSTALLER -V100Installer $env:V100_INSTALLER -V101Installer $env:V101_INSTALLER `
+            -WorkRoot $env:WORK_ROOT -TimeoutSec 300
+
+      - name: S5 - test build, v1.0.1 (reported)
+        if: ${{ !cancelled() && env.REPRO_READY == 'true' }}
+        shell: powershell
+        run: |
+          & "$env:GITHUB_WORKSPACE\tools\uninstall-repro\Run-Scenario.ps1" -Scenario S5 `
+            -TestInstaller $env:TEST_INSTALLER -V100Installer $env:V100_INSTALLER -V101Installer $env:V101_INSTALLER `
+            -WorkRoot $env:WORK_ROOT -TimeoutSec 300
+
+      # Hung uninstallers from S2/S3/S5 are killed only here, at teardown, then the users are removed.
+      - name: Teardown (kill leftovers, remove repro users)
+        if: ${{ always() }}
+        shell: powershell
+        run: |
+          & "$env:GITHUB_WORKSPACE\tools\uninstall-repro\Run-Scenario.ps1" -Mode Cleanup
+
+      - name: Upload evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: uninstall-repro
+          path: ${{ env.WORK_ROOT }}\out
+          if-no-files-found: warn

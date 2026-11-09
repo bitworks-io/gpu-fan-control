@@ -69,6 +69,52 @@ public class AutomationStatusTests
     }
 
     [Fact]
+    public void Stopped_ReleaseIssues_AreReportedInJson()
+    {
+        var plain = AutomationStatus.Stopped(1, Started, Now, "1.1.0");
+        Assert.Empty(plain.ReleaseIssues);
+        Assert.Contains("\"releaseIssues\": []", plain.ToJson());
+
+        var issues = new[] { ReleaseIssues.Format(ReleaseIssues.Incomplete, "GPU A") };
+        var s = AutomationStatus.Stopped(1, Started, Now, "1.1.0", issues);
+        Assert.Equal("release-incomplete: GPU A", Assert.Single(s.ReleaseIssues));
+        Assert.Contains("release-incomplete: GPU A", s.ToJson());
+        Assert.Empty(AutomationStatus.Stopped(1, Started, Now, "1.1.0", null).ReleaseIssues);
+    }
+
+    [Fact]
+    public void GpuIssues_ReportedInEngagedAndStopped_AndParseBack()
+    {
+        var issues = new[]
+        {
+            new StatusGpuIssue { Gpu = "GPU A", State = GpuIssueStates.Degraded, Message = "Result: ADLX_FAIL" },
+            new StatusGpuIssue { Gpu = "GPU B", State = GpuIssueStates.Refused, Message = "no" },
+        };
+        Assert.Empty(AutomationStatus.Engaged(1, Started, Now, "1.1.0", Gpus()).GpuIssues);
+        var e = AutomationStatus.Engaged(1, Started, Now, "1.1.0", Gpus(), issues);
+        Assert.Equal(2, e.GpuIssues.Count);
+        Assert.Contains("\"gpuIssues\"", e.ToJson());
+        Assert.Contains("\"state\": \"degraded\"", e.ToJson());
+        Assert.Equal(2, AutomationStatus.Stopped(1, Started, Now, "1.1.0", null, issues).GpuIssues.Count);
+
+        var back = AutomationStatus.TryParse(e.ToJson());
+        Assert.NotNull(back);
+        Assert.Equal("Result: ADLX_FAIL", back!.GpuIssues[0].Message);
+        Assert.Equal("engaged", back.State);
+        Assert.Null(AutomationStatus.TryParse("not json"));
+        Assert.Null(AutomationStatus.TryParse(null));
+    }
+
+    [Fact]
+    public void Engaged_CarriesReleaseIssuesInRun()
+    {
+        var s = AutomationStatus.Engaged(1, Started, Now, "1.1.0", Gpus(), null, new[] { "release-incomplete: GPU A" });
+        Assert.Equal("release-incomplete: GPU A", Assert.Single(s.ReleaseIssues));
+        Assert.Contains("release-incomplete: GPU A", s.ToJson());
+        Assert.Empty(AutomationStatus.Engaged(1, Started, Now, "1.1.0", Gpus()).ReleaseIssues);
+    }
+
+    [Fact]
     public void Stopped_ReasonExit()
     {
         var s = AutomationStatus.Stopped(1, Started, Now, "1.1.0");

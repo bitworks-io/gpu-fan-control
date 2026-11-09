@@ -14,8 +14,15 @@ public class FanControlTestService
     private const int MinimumUsefulRpm = 500;
     private const double MinimumRpmRiseRatio = 1.15;
 
-    public bool RunTest(IFanControlBackend backend, LogService log)
+    public bool RunTest(IFanControlBackend backend, LogService log) => RunTest(backend, log, out _);
+
+    /// <summary>
+    /// As above; <paramref name="writeError"/> is the exception text when the test threw (a failed fan write or
+    /// read), else null. A test that merely does not pass reports no error.
+    /// </summary>
+    public bool RunTest(IFanControlBackend backend, LogService log, out string? writeError)
     {
+        writeError = null;
         try
         {
             var before = backend.GetFanTelemetry();
@@ -48,6 +55,7 @@ public class FanControlTestService
         catch (Exception ex)
         {
             log.Log("Fan test failed with exception.", ex);
+            writeError = ex.Message;
             return false;
         }
         finally

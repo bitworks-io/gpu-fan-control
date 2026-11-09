@@ -23,7 +23,7 @@ public class ProbeSourceGuardTests
     public void CapabilityProbe_CallsNoFanWriteApi()
     {
         var path = Path.Combine(FindRepoRoot(), "LightweightAmdGpuFanControl", "Services", "CapabilityProbe.cs");
-        var source = File.ReadAllText(path);
+        var source = SourceText.Read(path);
         foreach (var token in Forbidden)
             Assert.DoesNotContain(token, source);
     }

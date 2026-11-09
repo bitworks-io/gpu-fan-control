@@ -65,7 +65,9 @@
 - [ ] **Step 4:** run the same command. Expected: PASS, and the whole test project green.
 - [ ] **Step 5:** commit: `fix: hysteretic fan decreases in the ramp region (no ±3 % hunt on a 1 °C sensor wobble)`.
 
-### Task A2: monotonic time from the service, and a log of held decreases
+### Task A2: monotonic time from the service
+
+There is deliberately no log of held decreases: a held decrease writes nothing, and a per-poll log line would spam.
 
 **Files:**
 - Modify `LightweightAmdGpuFanControl/Services/FanControlService.cs` (`AdjustChannel`): pass `Stopwatch.GetTimestamp()`-based milliseconds into `TempReading`. Do not use `DateTime.Now`, because a clock step would break the dwell. Wherever `LastAppliedPercent` is reset to -1 (pause, disable, relinquish, write error), also set `channel.State.HasPrevious = false`, so a resumed GPU starts plain.

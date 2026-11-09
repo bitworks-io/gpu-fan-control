@@ -264,6 +264,7 @@ public class FanControlService
                     channel.Backend.RestoreAutomaticFanControl();
                     channel.ControlActive = false;
                     channel.LastAppliedPercent = -1;
+                    channel.State.HasPrevious = false;
                 }
             }
         }
@@ -301,6 +302,7 @@ public class FanControlService
                     channel.Backend.RestoreAutomaticFanControl();
                     channel.ControlActive = false;
                     channel.LastAppliedPercent = -1;
+                    channel.State.HasPrevious = false;
                 }
                 catch (Exception ex)
                 {
@@ -435,6 +437,7 @@ public class FanControlService
                 backend.RestoreAutomaticFanControl();
                 channel.ControlActive = false;
                 channel.LastAppliedPercent = -1;
+                channel.State.HasPrevious = false;
             }
             var telemetry = SafeTelemetry(backend);
             return new GpuStatus(backend.AdapterName, backend.GpuId, enabled, false,
@@ -442,13 +445,14 @@ public class FanControlService
         }
 
         temp = backend.GetTemperatureC();
-        var decision = _policy.Decide(new TempReading(temp), settings, channel.State);
+        var decision = _policy.Decide(new TempReading(temp, MonotonicMs()), settings, channel.State);
 
         if (decision.Action == FanAction.RelinquishToAuto)
         {
             backend.RestoreAutomaticFanControl();
             channel.ControlActive = false;
             channel.LastAppliedPercent = -1;
+            channel.State.HasPrevious = false;
             _logService.Log($"{backend.AdapterName}: sensor read failed repeatedly; relinquished to driver automatic.");
         }
         else
@@ -480,6 +484,10 @@ public class FanControlService
             temp, fanPercent ?? tele.percent, tele.rpm);
     }
 
+    /// <summary>Monotonic milliseconds for the ramp's decrease dwell. Never wall-clock: a clock step must not break the dwell.</summary>
+    private static long MonotonicMs() =>
+        System.Diagnostics.Stopwatch.GetTimestamp() * 1000 / System.Diagnostics.Stopwatch.Frequency;
+
     /// <summary>
     /// A fan write failed during regulation. The GPU leaves regulation for the rest of the run: it is released once
     /// through the backend's restore (the planner path, confirmed by IsAtFactory where that plan applies) and is never
@@ -494,6 +502,7 @@ public class FanControlService
             bool released = channel.Backend.TryRestoreAutomaticFanControl();
             channel.ControlActive = false;
             channel.LastAppliedPercent = -1;
+            channel.State.HasPrevious = false;
             string outcome = ReleaseWording.Describe(released, channel.Backend.LastReleaseAction);
             _logService.Log($"{channel.Backend.AdapterName}: after the fan write error, {outcome}.");
             // The release (and any release-incomplete record) is done before this, so the in-run status carries both.

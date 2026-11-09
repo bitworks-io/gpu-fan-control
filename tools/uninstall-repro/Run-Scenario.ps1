@@ -14,7 +14,7 @@ Modes:
   Cleanup   Kill any process owned by a repro user, unregister the repro tasks and remove the users.
 
 Everything here must run under Windows PowerShell 5.1 (the wrapper is launched with powershell.exe).
-Scenarios S1 and S4 are asserted; S2, S3 and S5 are reported only.
+Scenarios S1 and S4 are asserted; S2, S3 and S5 are reported only (and any -GrantBatchLogon run is reported only).
 #>
 [CmdletBinding()]
 param(
@@ -27,7 +27,11 @@ param(
     [string]$V101Installer,
     [string]$WorkRoot = 'C:\repro-work',
     [int]$TimeoutSec = 300,
-    [string]$ParamFile
+    [string]$ParamFile,
+    # Opt-in diagnostic variant: grant SeBatchLogonRight to this scenario's repro user only (throwaway runner),
+    # via secedit /configure. Default is diagnose only (the right is reported, never changed). A grant run
+    # uses its own user and output folder and is never asserted.
+    [switch]$GrantBatchLogon
 )
 
 $ErrorActionPreference = 'Stop'
@@ -125,7 +129,9 @@ function Get-WindowTexts {
         if ($r[1] -eq 'top' -and [string]::IsNullOrEmpty($r[4]) -and $r[3] -notlike '#32770') { continue }
         $out.Add([pscustomobject]@{ pid = $wpid; kind = $r[1]; visible = ($r[2] -eq '1'); class = $r[3]; text = $r[4] })
     }
-    return , $out.ToArray()
+    # Plain enumeration (no leading comma): callers wrap in @(), and a unary comma here nested the rows one
+    # level deeper in every poll row (windows: [[...]]).
+    $out.ToArray()
 }
 
 # ---------------------------------------------------------------------------------------------
@@ -237,6 +243,120 @@ function New-ReproUser {
     return [pscustomobject]@{ Name = $Name; Credential = $cred }
 }
 
+function Export-UserRights {
+    <# Read-only. secedit /export of the user-rights area to a temp INF, parsed to a hashtable
+       right name -> entries (SID strings without the leading '*', or account names). $null if unavailable. #>
+    $ErrorActionPreference = 'Continue'
+    $tmp = Join-Path $env:TEMP ('repro-rights-{0}.inf' -f [guid]::NewGuid().ToString('N'))
+    try {
+        $null = & secedit.exe /export /cfg $tmp /areas USER_RIGHTS 2>&1
+        if (-not (Test-Path -LiteralPath $tmp)) { return $null }
+        $rights = @{}
+        foreach ($line in (Get-Content -LiteralPath $tmp)) {
+            if ($line -match '^\s*(Se\w+)\s*=\s*(.*)$') {
+                $rights[$Matches[1]] = @($Matches[2].Split(',') | ForEach-Object { $_.Trim().TrimStart('*') } | Where-Object { $_ })
+            }
+        }
+        return $rights
+    } catch {
+        return $null
+    } finally {
+        Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
+    }
+}
+
+function Get-BatchLogonReport {
+    <# Read-only: does the user hold SeBatchLogonRight (directly, or through the well-known groups the user
+       belongs to: Users, Everyone, Authenticated Users) and is it denied (SeDenyBatchLogonRight)? #>
+    param([Parameter(Mandatory)][string]$UserName)
+    $r = [ordered]@{ user = $UserName; grantedDirect = $null; grantedViaGroup = $null; denied = $null; entries = ''; note = '' }
+    try {
+        $sid = (Get-LocalUser -Name $UserName -ErrorAction Stop).SID.Value
+        $rights = Export-UserRights
+        if ($null -eq $rights) { $r.note = 'secedit export unavailable'; return [pscustomobject]$r }
+        $grant = @($rights['SeBatchLogonRight'] | Where-Object { $_ })
+        $deny = @($rights['SeDenyBatchLogonRight'] | Where-Object { $_ })
+        $groups = @('S-1-5-32-545', 'S-1-1-0', 'S-1-5-11')
+        $r.grantedDirect = (($grant -contains $sid) -or ($grant -contains $UserName))
+        $r.grantedViaGroup = (@($grant | Where-Object { $groups -contains $_ }).Count -gt 0)
+        $r.denied = (($deny -contains $sid) -or ($deny -contains $UserName) -or (@($deny | Where-Object { $groups -contains $_ }).Count -gt 0))
+        $r.entries = ($grant -join ',')
+    } catch {
+        $r.note = 'report failed: ' + $_.Exception.Message
+    }
+    [pscustomobject]$r
+}
+
+function Format-BatchLogonReport {
+    param($Report)
+    if (-not $Report) { return 'SeBatchLogonRight: not checked' }
+    $s = 'SeBatchLogonRight for {0}: direct={1} via-group={2} denied={3}; right holders: {4}' -f $Report.user, $Report.grantedDirect, $Report.grantedViaGroup, $Report.denied, $Report.entries
+    if ($Report.note) { $s += ' (' + $Report.note + ')' }
+    $s
+}
+
+function Grant-BatchLogonRight {
+    <# Opt-in (-GrantBatchLogon). Adds the repro user's SID to SeBatchLogonRight via secedit /configure with a
+       temp INF that lists the existing holders plus this one, so no other holder is dropped and no other right
+       is touched. Throwaway runner only. #>
+    param([Parameter(Mandatory)][string]$UserName)
+    $ErrorActionPreference = 'Continue'
+    $sid = (Get-LocalUser -Name $UserName -ErrorAction Stop).SID.Value
+    $rights = Export-UserRights
+    if ($null -eq $rights) { throw 'cannot read the current user rights (secedit export failed)' }
+    $cur = @($rights['SeBatchLogonRight'] | Where-Object { $_ })
+    if ($cur -contains $sid) { return 'SeBatchLogonRight already held by the user' }
+    $entries = @(($cur | ForEach-Object { if ($_ -match '^S-1-') { '*' + $_ } else { $_ } }) + ('*' + $sid))
+    $base = Join-Path $env:TEMP ('repro-grant-{0}' -f [guid]::NewGuid().ToString('N'))
+    $inf = "$base.inf"; $sdb = "$base.sdb"
+    try {
+        @('[Unicode]', 'Unicode=yes', '[Version]', 'signature="$CHICAGO$"', 'Revision=1', '[Privilege Rights]',
+            ('SeBatchLogonRight = ' + ($entries -join ','))) | Set-Content -LiteralPath $inf -Encoding Unicode
+        $out = (& secedit.exe /configure /db $sdb /cfg $inf /areas USER_RIGHTS /quiet 2>&1 | Out-String).Trim()
+        if ($LASTEXITCODE -ne 0) { throw "secedit /configure exit $LASTEXITCODE : $out" }
+    } finally {
+        Remove-Item -LiteralPath $inf, $sdb, "$base.jfm", "$base.log" -Force -ErrorAction SilentlyContinue
+    }
+    'granted SeBatchLogonRight to ' + $UserName
+}
+
+function Get-TaskLaunchDiag {
+    <# Read-only, best effort: Task Scheduler operational log entries for the task and Security log logon
+       events (4624/4625) for the user since $Since. Every source is skipped with a one-line reason if the
+       runner does not allow it or the log is disabled. Returns lines of text. #>
+    param([string]$TaskName, [string]$UserName, [datetime]$Since)
+    $lines = New-Object System.Collections.Generic.List[string]
+    try {
+        $ln = 'Microsoft-Windows-TaskScheduler/Operational'
+        if (-not (Get-WinEvent -ListLog $ln -ErrorAction Stop).IsEnabled) {
+            $lines.Add('TaskScheduler/Operational log is disabled: no task events recorded')
+        } else {
+            $ev = @(Get-WinEvent -FilterHashtable @{ LogName = $ln; StartTime = $Since } -ErrorAction Stop |
+                    Where-Object { $_.Message -like "*$TaskName*" } | Sort-Object TimeCreated | Select-Object -First 15)
+            if ($ev.Count -eq 0) { $lines.Add('TaskScheduler/Operational: no events for this task') }
+            foreach ($e in $ev) { $lines.Add(('TaskScheduler {0:HH:mm:ss} id {1}: {2}' -f $e.TimeCreated, $e.Id, (($e.Message -split "\r?\n")[0]))) }
+        }
+    } catch {
+        $lines.Add('TaskScheduler/Operational: ' + $(if ($_.Exception.Message -match 'No events were found') { 'no events for this task' } else { 'skipped (' + $_.Exception.Message + ')' }))
+    }
+    try {
+        $pat = 'Account Name:\s+' + [regex]::Escape($UserName) + '\b'
+        $ev = @(Get-WinEvent -FilterHashtable @{ LogName = 'Security'; Id = 4624, 4625; StartTime = $Since } -ErrorAction Stop |
+                Where-Object { $_.Message -match $pat } | Sort-Object TimeCreated | Select-Object -First 15)
+        if ($ev.Count -eq 0) { $lines.Add('Security: no 4624/4625 logon events for the user (auditing may be off)') }
+        foreach ($e in $ev) {
+            $m = $e.Message
+            $lt = $(if ($m -match 'Logon Type:\s+(\d+)') { $Matches[1] } else { '?' })
+            $st = $(if ($m -match '\sStatus:\s+(0x[0-9A-Fa-f]+)') { $Matches[1] } else { '' })
+            $ss = $(if ($m -match 'Sub Status:\s+(0x[0-9A-Fa-f]+)') { $Matches[1] } else { '' })
+            $lines.Add(('Security {0:HH:mm:ss} id {1} logon type {2} status {3} substatus {4}' -f $e.TimeCreated, $e.Id, $lt, $st, $ss))
+        }
+    } catch {
+        $lines.Add('Security: ' + $(if ($_.Exception.Message -match 'No events were found') { 'no 4624/4625 logon events for the user (auditing may be off)' } else { 'skipped (' + $_.Exception.Message + ')' }))
+    }
+    return $lines.ToArray()
+}
+
 function Invoke-AsUser {
     <# Starts one installer/uninstaller as the standard user via the wrapper. Preferred method: a scheduled
        task registered with the user's password (logon type Password, run level Limited). If registration
@@ -269,6 +389,7 @@ function Invoke-AsUser {
     }
 
     $taskName = "repro-$($User.Name)-$Tag"
+    $taskT0 = (Get-Date).AddSeconds(-5)
     try {
         $a = New-Attempt 'task'
         $handle.ResultFile = $a.ResultFile; $handle.WindowFile = $a.WindowFile
@@ -286,11 +407,36 @@ function Invoke-AsUser {
         $handle.Method = 'ScheduledTask'
         $handle.TaskName = $taskName
         # The wrapper writes <result>.started immediately; the first logon also creates the profile, so allow 120 s.
+        # While waiting, record the task's State and LastTaskResult (on change). If the task is no longer
+        # Running/Queued and carries a failure HRESULT (or never wrote the started file in 20 s), it cannot
+        # start: stop waiting and fall back now instead of after the full 120 s.
         $deadline = (Get-Date).AddSeconds(120)
-        while (-not (Test-Path -LiteralPath $handle.StartedFile) -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 500 }
+        $wsw = [Diagnostics.Stopwatch]::StartNew()
+        $lastSig = ''
+        $cannotStart = ''
+        while (-not (Test-Path -LiteralPath $handle.StartedFile) -and (Get-Date) -lt $deadline) {
+            $ti = Get-ScheduledTaskInfo -TaskName $taskName -ErrorAction SilentlyContinue
+            $ts = [string](Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue).State
+            if ($ti) {
+                $lr = [uint32]$ti.LastTaskResult
+                $sig = '{0}|{1}' -f $ts, $lr
+                if ($sig -ne $lastSig) {
+                    $lastSig = $sig
+                    $handle.Notes += ('task t+{0:N1}s state {1} LastTaskResult 0x{2:X8}' -f $wsw.Elapsed.TotalSeconds, $ts, $lr)
+                }
+                $idle = ($ts -ne 'Running' -and $ts -ne 'Queued')
+                if ($idle -and $lr -ge 2147483648 -and $wsw.Elapsed.TotalSeconds -ge 3) { $cannotStart = ('LastTaskResult 0x{0:X8} with the task not running' -f $lr); break }
+                if ($idle -and $wsw.Elapsed.TotalSeconds -ge 20) { $cannotStart = ('task state {0} (LastTaskResult 0x{1:X8}) and no wrapper after 20 s' -f $ts, $lr); break }
+            }
+            Start-Sleep -Milliseconds 500
+        }
         if (-not (Test-Path -LiteralPath $handle.StartedFile)) {
             $info = Get-ScheduledTaskInfo -TaskName $taskName
-            $handle.Notes += ('task did not start the wrapper in 120 s (LastTaskResult 0x{0:X8})' -f [uint32]$info.LastTaskResult)
+            if ($cannotStart) { $handle.Notes += ('task cannot start: ' + $cannotStart + '; falling back now') }
+            else { $handle.Notes += ('task did not start the wrapper in 120 s (LastTaskResult 0x{0:X8})' -f [uint32]$info.LastTaskResult) }
+            $diag = @(Get-TaskLaunchDiag -TaskName $taskName -UserName $User.Name -Since $taskT0)
+            foreach ($d in $diag) { Write-Host "  diag [$Tag] $d"; $handle.Notes += ('diag: ' + $d) }
+            try { $diag | Set-Content -LiteralPath (Join-Path $StepDir "$Tag.task.diag.txt") -Encoding UTF8 } catch { }
             Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
             for ($i = 0; $i -lt 10; $i++) {
                 if ([string](Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue).State -ne 'Running') { break }
@@ -518,6 +664,19 @@ function Watch-Uninstall {
     Watch-Step -Handle $Handle -UserName $UserName -TimeoutSec $TimeoutSec -Capture -TempDir $TempDir -PollFile $PollFile
 }
 
+function Wait-UninstallSettled {
+    <# The uninstaller's first phase exits right after launching its second phase (_unins.tmp), which deletes
+       the files, so the wrapper reports before the app folder is gone. Wait (bounded) until no uninstaller
+       process of the user remains before reading the post state. Returns seconds waited. #>
+    param([Parameter(Mandatory)][string]$UserName, [int]$MaxSeconds = 60)
+    $sw = [Diagnostics.Stopwatch]::StartNew()
+    while ($sw.Elapsed.TotalSeconds -lt $MaxSeconds) {
+        if (@(Get-UserProcesses $UserName | Where-Object { $_.name -match '^(unins\d+\.exe|_unins\.tmp)$' }).Count -eq 0) { break }
+        Start-Sleep -Milliseconds 500
+    }
+    [math]::Round($sw.Elapsed.TotalSeconds, 1)
+}
+
 function ConvertTo-MdCell {
     param($Text)
     if ($null -eq $Text) { return '' }
@@ -535,7 +694,10 @@ function Invoke-Scenario {
         if (-not $installers[$k] -or -not (Test-Path -LiteralPath $installers[$k])) { throw "Installer for '$k' not found: $($installers[$k])" }
     }
     Initialize-WorkRoot
-    $outDir = Join-Path "$WorkRoot\out" $Scenario
+    # A grant run uses its own user and output folder so it can never read the plain run's result files.
+    $variant = $(if ($GrantBatchLogon) { 'grant' } else { '' })
+    $assert = $def.Assert -and -not $GrantBatchLogon
+    $outDir = Join-Path "$WorkRoot\out" ($Scenario + $(if ($variant) { "-$variant" } else { '' }))
     New-Item -ItemType Directory -Force -Path $outDir | Out-Null
 
     # Stage installers where every repro user can read them.
@@ -546,9 +708,15 @@ function Invoke-Scenario {
         $staged[$k] = $dest
     }
 
-    $user = New-ReproUser -Name "$UserPrefix$Scenario"
+    $user = New-ReproUser -Name ("$UserPrefix$Scenario" + $(if ($variant) { 'g' } else { '' }))
     $steps = New-Object System.Collections.Generic.List[object]
     $failures = New-Object System.Collections.Generic.List[string]
+    if ($GrantBatchLogon) {
+        try { Write-Host ("[$Scenario] " + (Grant-BatchLogonRight -UserName $user.Name)) }
+        catch { $failures.Add('batch-logon grant failed: ' + $_.Exception.Message); Write-Host "[$Scenario] grant failed: $($_.Exception.Message)" }
+    }
+    $batch = Get-BatchLogonReport -UserName $user.Name
+    Write-Host ("[$Scenario] " + (Format-BatchLogonReport $batch))
     $localAppData = "C:\Users\$($user.Name)\AppData\Local"
     $tempDir = "$localAppData\Temp"
     $stop = $false
@@ -600,19 +768,29 @@ function Invoke-Scenario {
             Write-Host "[$Scenario] $tag"
             $h = Invoke-AsUser -User $user -Tag $tag -Exe $unins -ArgString $argString -StepDir $outDir
             $w = Watch-Uninstall -Handle $h -UserName $user.Name -TimeoutSec $TimeoutSec -TempDir $tempDir -PollFile $pollFile
+            if ($w.Kind -eq 'completed') {
+                $settled = Wait-UninstallSettled -UserName $user.Name
+                if ($settled -ge 1) { $h.Notes += ('waited {0} s for the uninstaller second phase to exit' -f $settled) }
+            }
             $post = Get-PostState $localAppData
-            $texts = @()
+            # Window rows from the poll and the in-task files. Each row's windows may be nested one level
+            # (older rows), so flatten and stringify every field explicitly.
+            $seen = New-Object System.Collections.Generic.List[string]
             foreach ($f in @($pollFile, $h.WindowFile)) {
                 if (Test-Path -LiteralPath $f) {
                     foreach ($line in (Get-Content -LiteralPath $f)) {
                         try { $o = $line | ConvertFrom-Json } catch { continue }
-                        foreach ($win in @($o.windows)) {
-                            if ($win.text -and $win.class -ne 'ConsoleWindowClass') { $texts += ('[{0}] {1}' -f $win.class, $win.text) }
+                        foreach ($grp in @($o.windows)) {
+                            foreach ($win in @($grp)) {
+                                $cls = [string]$win.class
+                                $txt = [string]$win.text
+                                if ($txt -and $cls -ne 'ConsoleWindowClass') { $seen.Add('[' + $cls + '] ' + $txt) }
+                            }
                         }
                     }
                 }
             }
-            $texts = @($texts | Select-Object -Unique)
+            $texts = @($seen | Select-Object -Unique)
             $uninst = [pscustomobject]@{
                 kind = 'uninstall'; installer = ''; method = $h.Method; notes = $h.Notes; exitCode = $w.ExitCode
                 outcome = $w.Outcome; detail = $w.Detail; wrapperExitCode = $w.WrapperExitCode
@@ -630,10 +808,11 @@ function Invoke-Scenario {
         }
     }
 
-    $assertFailed = $def.Assert -and ($failures.Count -gt 0)
+    $assertFailed = $assert -and ($failures.Count -gt 0)
     $result = [ordered]@{
-        scenario = $Scenario; note = $def.Note; asserted = $def.Assert; history = $def.Steps
-        verdict = $(if ($failures.Count -eq 0) { 'OK' } elseif ($def.Assert) { 'FAIL' } else { 'REPORTED-ANOMALY' })
+        scenario = $Scenario; variant = $variant; note = $def.Note; asserted = $assert; history = $def.Steps
+        batchLogon = $batch
+        verdict = $(if ($failures.Count -eq 0) { 'OK' } elseif ($assert) { 'FAIL' } else { 'REPORTED-ANOMALY' })
         failures = @($failures); skipReason = $skipReason; steps = @($steps)
     }
     Write-Json $result (Join-Path $outDir 'result.json')
@@ -649,7 +828,10 @@ function Write-ScenarioSummary {
     param($Result)
     $md = New-Object System.Collections.Generic.List[string]
     $mode = if ($Result.asserted) { 'asserted' } else { 'reported only' }
-    $md.Add("### $($Result.scenario): $($Result.note) ($mode) - $($Result.verdict)")
+    $vtag = $(if ($Result.variant) { " + $($Result.variant) SeBatchLogonRight" } else { '' })
+    $md.Add("### $($Result.scenario)${vtag}: $($Result.note) ($mode) - $($Result.verdict)")
+    $md.Add('')
+    $md.Add("- $(ConvertTo-MdCell (Format-BatchLogonReport $Result.batchLogon))")
     $md.Add('')
     $md.Add("History: $($Result.history -join ' -> ') -> uninstall")
     $md.Add('')
@@ -709,7 +891,15 @@ if ($MyInvocation.InvocationName -ne '.') {
         'Cleanup' { Invoke-Cleanup }
         default {
             if (-not $Scenario) { throw '-Scenario is required' }
-            Invoke-Scenario -Scenario $Scenario
+            try {
+                Invoke-Scenario -Scenario $Scenario
+            } catch {
+                # Name the exact failing statement and stack, so a driver bug is never just "Invoke-Scenario : <message>".
+                Write-Host ('::error::driver exception ' + $_.Exception.GetType().FullName + ': ' + $_.Exception.Message)
+                Write-Host ($_.InvocationInfo.PositionMessage)
+                Write-Host ($_.ScriptStackTrace)
+                throw
+            }
         }
     }
 }

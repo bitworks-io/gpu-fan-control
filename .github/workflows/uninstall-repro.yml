@@ -169,6 +169,17 @@ jobs:
             -TestInstaller $env:TEST_INSTALLER -V100Installer $env:V100_INSTALLER -V101Installer $env:V101_INSTALLER `
             -WorkRoot $env:WORK_ROOT -TimeoutSec 300
 
+      # Diagnostic variant (reported only, never fails the job): the S1 history again, with SeBatchLogonRight
+      # granted to its own repro user (throwaway runner) via -GrantBatchLogon. Compare its launch path (the
+      # "Via" column and the task notes) with the S1 run above, which only reports whether the right is held.
+      - name: S1 with batch-logon grant (diagnostic variant, reported)
+        if: ${{ !cancelled() && env.REPRO_READY == 'true' }}
+        shell: powershell
+        run: |
+          & "$env:GITHUB_WORKSPACE\tools\uninstall-repro\Run-Scenario.ps1" -Scenario S1 -GrantBatchLogon `
+            -TestInstaller $env:TEST_INSTALLER -V100Installer $env:V100_INSTALLER -V101Installer $env:V101_INSTALLER `
+            -WorkRoot $env:WORK_ROOT -TimeoutSec 300
+
       # Hung uninstallers from S2/S3/S5 are killed only here, at teardown, then the users are removed.
       - name: Teardown (kill leftovers, remove repro users)
         if: ${{ always() }}

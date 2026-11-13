@@ -155,8 +155,10 @@ jobs:
           "V101_INSTALLER=$(Join-Path $dir 'v1.0.1.exe')" | Add-Content $env:GITHUB_ENV
           "REPRO_READY=true" | Add-Content $env:GITHUB_ENV
 
-      # S1 and S4 (the controls) run first and are asserted: they fail on anything but success. S5b and S6 are asserted too.
-      # S2, S3, S5 report the exact outcome and always exit 0. Every scenario
+      # S1 and S4 (the controls) run first and are asserted: they fail on anything but success. S5b and S6 (asserted) run
+      # next, BEFORE the reported scenarios: S5 leaves a hung app process of its own user running until teardown, which
+      # would change what the 1.1 uninstaller's taskkill reports in a later scenario (S5b/S6 also refuse to judge with
+      # another scenario's app process present). S2, S3, S5 report the exact outcome and always exit 0. Every scenario
       # step runs even if an earlier one failed, so one run yields the full picture.
       - name: S1 - test build only (control, asserted)
         if: ${{ !cancelled() && env.REPRO_READY == 'true' }}
@@ -171,6 +173,22 @@ jobs:
         shell: powershell
         run: |
           & "$env:GITHUB_WORKSPACE\tools\uninstall-repro\Run-Scenario.ps1" -Scenario S4 `
+            -TestInstaller $env:TEST_INSTALLER -V100Installer $env:V100_INSTALLER -V101Installer $env:V101_INSTALLER -V102Installer $env:V102_INSTALLER `
+            -WorkRoot $env:WORK_ROOT -TimeoutSec 300
+
+      - name: S5b - test build, v1.0.2 (asserted)
+        if: ${{ !cancelled() && env.REPRO_READY == 'true' }}
+        shell: powershell
+        run: |
+          & "$env:GITHUB_WORKSPACE\tools\uninstall-repro\Run-Scenario.ps1" -Scenario S5b `
+            -TestInstaller $env:TEST_INSTALLER -V100Installer $env:V100_INSTALLER -V101Installer $env:V101_INSTALLER -V102Installer $env:V102_INSTALLER `
+            -WorkRoot $env:WORK_ROOT -TimeoutSec 300
+
+      - name: S6 - test build, v1.0.2, tray running (asserted)
+        if: ${{ !cancelled() && env.REPRO_READY == 'true' }}
+        shell: powershell
+        run: |
+          & "$env:GITHUB_WORKSPACE\tools\uninstall-repro\Run-Scenario.ps1" -Scenario S6 `
             -TestInstaller $env:TEST_INSTALLER -V100Installer $env:V100_INSTALLER -V101Installer $env:V101_INSTALLER -V102Installer $env:V102_INSTALLER `
             -WorkRoot $env:WORK_ROOT -TimeoutSec 300
 
@@ -195,22 +213,6 @@ jobs:
         shell: powershell
         run: |
           & "$env:GITHUB_WORKSPACE\tools\uninstall-repro\Run-Scenario.ps1" -Scenario S5 `
-            -TestInstaller $env:TEST_INSTALLER -V100Installer $env:V100_INSTALLER -V101Installer $env:V101_INSTALLER -V102Installer $env:V102_INSTALLER `
-            -WorkRoot $env:WORK_ROOT -TimeoutSec 300
-
-      - name: S5b - test build, v1.0.2 (asserted)
-        if: ${{ !cancelled() && env.REPRO_READY == 'true' }}
-        shell: powershell
-        run: |
-          & "$env:GITHUB_WORKSPACE\tools\uninstall-repro\Run-Scenario.ps1" -Scenario S5b `
-            -TestInstaller $env:TEST_INSTALLER -V100Installer $env:V100_INSTALLER -V101Installer $env:V101_INSTALLER -V102Installer $env:V102_INSTALLER `
-            -WorkRoot $env:WORK_ROOT -TimeoutSec 300
-
-      - name: S6 - test build, v1.0.2, tray running (asserted)
-        if: ${{ !cancelled() && env.REPRO_READY == 'true' }}
-        shell: powershell
-        run: |
-          & "$env:GITHUB_WORKSPACE\tools\uninstall-repro\Run-Scenario.ps1" -Scenario S6 `
             -TestInstaller $env:TEST_INSTALLER -V100Installer $env:V100_INSTALLER -V101Installer $env:V101_INSTALLER -V102Installer $env:V102_INSTALLER `
             -WorkRoot $env:WORK_ROOT -TimeoutSec 300
 

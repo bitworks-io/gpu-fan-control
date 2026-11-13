@@ -22,6 +22,11 @@ Asserted scenarios fail the job on any anomaly; reported ones always exit 0 and 
 `Unsupported arguments for 1.0.x: --restore-auto; exit 3` line, exit 0 within 120 s, the app folder gone,
 and no fan-control process left. S6 also requires the tray's owner and session to match the uninstaller's.
 
+**Order matters.** S5 hangs on purpose and leaves its own user's app process running until teardown, which
+would change what the 1.1 uninstaller's `taskkill /IM` reports in a later scenario. So S5b and S6 run right
+after the controls, count only the app process of their own user (by its installed exe path), and refuse to
+judge (a precondition failure) if another scenario's app process is still running.
+
 ## Self-test
 
 `Test-Harness.ps1` tests the pure functions (result building, Inno log parsing, stop-line classification,

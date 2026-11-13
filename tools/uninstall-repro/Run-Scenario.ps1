@@ -752,6 +752,23 @@ function Get-StopOutcome {
     }
 }
 
+function Select-ScenarioFanProcesses {
+    <# The app processes of THIS scenario: those running this scenario user's installed exe (case-insensitive path).
+       A reported scenario (S5) leaves another repro user's hung app process running until teardown, so S5b/S6 must
+       never count or pick it. Tested by Test-Harness.ps1. #>
+    param($Processes, [string]$AppExe)
+    $want = $AppExe.ToLowerInvariant()
+    @($Processes | Where-Object { $_.Name -eq 'LightweightAmdGpuFanControl.exe' -and $_.ExecutablePath -and ([string]$_.ExecutablePath).ToLowerInvariant() -eq $want })
+}
+
+function Select-ForeignFanProcesses {
+    <# App processes that are NOT this scenario's (another user's exe, or a path that cannot be read). Their presence
+       would change what the uninstaller's `taskkill /IM` reports, so S5b/S6 refuse to judge with any present. #>
+    param($Processes, [string]$AppExe)
+    $want = $AppExe.ToLowerInvariant()
+    @($Processes | Where-Object { $_.Name -eq 'LightweightAmdGpuFanControl.exe' -and -not ($_.ExecutablePath -and ([string]$_.ExecutablePath).ToLowerInvariant() -eq $want) })
+}
+
 function Test-ExpectedV102Path {
     <# Failure strings (empty = pass) for the 1.1 -> 1.0.2 downgrade scenarios. S5b: nothing running, so --stop
        exits 3. S6: a 1.0.2 tray without a stop listener, so --stop exits 1, and the tray's owner and session must
@@ -896,15 +913,20 @@ function Invoke-Scenario {
                 if (-not (Test-Path -LiteralPath $logPath)) { New-Item -ItemType File -Path $logPath | Out-Null }
                 $logHandle = [IO.File]::Open($logPath, 'Open', 'Read', 'ReadWrite,Delete')
                 $logStart = $logHandle.Length
-                if ($def.StartTray) {
-                    $appExe = Join-Path $localAppData "Programs\Bitworks\$AppFolderName\LightweightAmdGpuFanControl.exe"
+                $appExeV = Join-Path $localAppData "Programs\Bitworks\$AppFolderName\LightweightAmdGpuFanControl.exe"
+                $foreign = @(Select-ForeignFanProcesses -Processes @(Get-CimInstance Win32_Process -Filter "Name='LightweightAmdGpuFanControl.exe'" -ErrorAction SilentlyContinue) -AppExe $appExeV)
+                if ($foreign.Count -gt 0) {
+                    $trayFailure = "precondition: $($foreign.Count) app process(es) of another scenario running (pids $(($foreign | ForEach-Object { $_.ProcessId }) -join ',')); the uninstaller's taskkill result would not be this scenario's"
+                }
+                if ($def.StartTray -and -not $trayFailure) {
+                    $appExe = $appExeV
                     $th = Invoke-AsUser -User $user -Tag ('step{0}-tray' -f $n) -Exe $appExe -ArgString '' -StepDir $outDir -Detach
                     $tw = Watch-Step -Handle $th -UserName $user.Name -TimeoutSec 120
                     if ($tw.Kind -ne 'completed') { $trayFailure = "tray did not start (launch $($tw.Outcome) $($tw.Detail))" }
                     else {
                         $tsw = [Diagnostics.Stopwatch]::StartNew()
                         while ($tsw.Elapsed.TotalSeconds -lt 20 -and -not $tray) {
-                            $tp = @(Get-CimInstance Win32_Process -Filter "Name='LightweightAmdGpuFanControl.exe'" -ErrorAction SilentlyContinue)
+                            $tp = @(Select-ScenarioFanProcesses -Processes @(Get-CimInstance Win32_Process -Filter "Name='LightweightAmdGpuFanControl.exe'" -ErrorAction SilentlyContinue) -AppExe $appExe)
                             if ($tp.Count -gt 0) {
                                 $o = Invoke-CimMethod -InputObject $tp[0] -MethodName GetOwner
                                 $tray = [pscustomobject]@{ pid = [int]$tp[0].ProcessId; owner = ('{0}\{1}' -f $o.Domain, $o.User); session = [int]$tp[0].SessionId }
@@ -970,7 +992,9 @@ function Invoke-Scenario {
             if ($isV102) {
                 $exits = @(Get-UninstallRunExits -Text $innoText)
                 $stopOutcome = Get-StopOutcome -Lines $appLogLines
-                $fanLeft = @(Get-Process -Name 'LightweightAmdGpuFanControl' -ErrorAction SilentlyContinue).Count
+                $allFan = @(Get-CimInstance Win32_Process -Filter "Name='LightweightAmdGpuFanControl.exe'" -ErrorAction SilentlyContinue)
+                $fanLeft = @(Select-ScenarioFanProcesses -Processes $allFan -AppExe $appExeV).Count
+                $h.Notes += ('app processes after uninstall: {0} of this scenario, {1} in total (any user)' -f $fanLeft, $allFan.Count)
                 # Uninstall owner/session come from the wrapper (the uninstaller's parent): observed when it
                 # could read the child's own values, otherwise the repro user and the wrapper's session.
                 $unCtx = $null

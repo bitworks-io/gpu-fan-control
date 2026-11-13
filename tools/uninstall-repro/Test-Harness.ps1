@@ -176,6 +176,23 @@ $dl = @(Get-DataDirDeleteLines -Text $delLog)
 Check 'data dir delete lines: failure captured' (($dl.Count -ge 1) -and (($dl -join "`n") -match 'Failed to delete'))
 Check 'data dir delete lines: none in S2 fixture' (@(Get-DataDirDeleteLines -Text $s2Log).Count -eq 0)
 
+# ---------------------------------------------------------------------------------------------
+# Select-ScenarioFanProcesses: S5b/S6 must see only their own user's app process. A reported scenario
+# (S5) leaves a hung app process of ANOTHER repro user running until teardown.
+# ---------------------------------------------------------------------------------------------
+$mine = 'C:\Users\reproS6\AppData\Local\Programs\Bitworks\Lightweight AMD GPU Fan Control\LightweightAmdGpuFanControl.exe'
+$other = 'C:\Users\reproS5\AppData\Local\Programs\Bitworks\Lightweight AMD GPU Fan Control\LightweightAmdGpuFanControl.exe'
+function New-Proc([string]$Name, $Path, [int]$ProcId) { [pscustomobject]@{ Name = $Name; ExecutablePath = $Path; ProcessId = $ProcId } }
+$procs = @((New-Proc 'LightweightAmdGpuFanControl.exe' $other 11), (New-Proc 'LightweightAmdGpuFanControl.exe' $mine.ToUpperInvariant() 22),
+    (New-Proc 'LightweightAmdGpuFanControl.exe' $null 33), (New-Proc 'cmd.exe' $mine 44))
+$sel = @(Select-ScenarioFanProcesses -Processes $procs -AppExe $mine)
+Check 'own procs: only this user''s exe (case-insensitive) is selected' (($sel.Count -eq 1) -and ($sel[0].ProcessId -eq 22)) "got $($sel.Count)"
+$sel = @(Select-ScenarioFanProcesses -Processes $procs -AppExe $other)
+Check 'own procs: the other user''s exe selects only its process' (($sel.Count -eq 1) -and ($sel[0].ProcessId -eq 11))
+Check 'own procs: none running gives zero' (@(Select-ScenarioFanProcesses -Processes @() -AppExe $mine).Count -eq 0)
+$frn = @(Select-ForeignFanProcesses -Processes $procs -AppExe $mine)
+Check 'foreign procs: another user''s app process and an unreadable path are foreign; own and non-app are not' ((($frn | ForEach-Object { $_.ProcessId }) -join ',') -eq '11,33') "got $(($frn | ForEach-Object { $_.ProcessId }) -join ',')"
+
 if ($script:fails) { Write-Host "$script:fails check(s) failed"; exit 1 }
 Write-Host 'all harness self-tests passed'
 exit 0

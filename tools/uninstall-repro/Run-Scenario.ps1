@@ -14,17 +14,21 @@ Modes:
   Cleanup   Kill any process owned by a repro user, unregister the repro tasks and remove the users.
 
 Everything here must run under Windows PowerShell 5.1 (the wrapper is launched with powershell.exe).
-Scenarios S1 and S4 are asserted; S2, S3 and S5 are reported only (and any -GrantBatchLogon run is reported only).
+Scenarios S1, S4, S5b and S6 are asserted; S2, S3 and S5 are reported only (and any -GrantBatchLogon run is reported only).
+S5b and S6 (1.1 -> 1.0.2 downgrade, then uninstall; S6 with the 1.0.2 tray running) additionally hold the app's
+log.txt open across the uninstall to capture the --stop / --restore-auto log lines, so the data folder may be
+left behind in those two scenarios (a harness artifact, not an uninstaller bug).
 #>
 [CmdletBinding()]
 param(
     [ValidateSet('Scenario', 'Wrapper', 'Cleanup')]
     [string]$Mode = 'Scenario',
-    [ValidateSet('S1', 'S2', 'S3', 'S4', 'S5')]
+    [ValidateSet('S1', 'S2', 'S3', 'S4', 'S5', 'S5b', 'S6')]
     [string]$Scenario,
     [string]$TestInstaller,
     [string]$V100Installer,
     [string]$V101Installer,
+    [string]$V102Installer,
     [string]$WorkRoot = 'C:\repro-work',
     [int]$TimeoutSec = 300,
     [string]$ParamFile,
@@ -40,13 +44,15 @@ $AppFolderName = 'Lightweight AMD GPU Fan Control'
 $DataRelPath = 'Bitworks\LightweightAmdGpuFanControl'
 $UserPrefix = 'repro'
 
-# Scenario table: installer history before the uninstall (keys: test, v100, v101) and whether it asserts.
+# Scenario table: installer history before the uninstall (keys: test, v100, v101, v102) and whether it asserts.
 $ScenarioTable = @{
     S1 = @{ Steps = @('test'); Assert = $true; Note = 'control: test build only' }
     S2 = @{ Steps = @('test', 'test'); Assert = $false; Note = 'same-version over-install' }
     S3 = @{ Steps = @('v100', 'v101', 'test', 'test'); Assert = $false; Note = 'the bench history (the experiment)' }
     S4 = @{ Steps = @('v100', 'v101'); Assert = $true; Note = 'release-only control' }
     S5 = @{ Steps = @('test', 'v101'); Assert = $false; Note = 'cleanup over-install: test build then v1.0.1' }
+    S5b = @{ Steps = @('test', 'v102'); Assert = $true; Note = 'downgrade to the 1.0.2 hotfix, then uninstall' }
+    S6 = @{ Steps = @('test', 'v102'); Assert = $true; StartTray = $true; Note = '1.0.2 tray running during the uninstall' }
 }
 
 # ---------------------------------------------------------------------------------------------
@@ -151,8 +157,30 @@ function Invoke-WrapperMode {
         }
         ($ctx | ConvertTo-Json) | Set-Content -LiteralPath ($p.ResultFile + '.started') -Encoding UTF8
 
-        $proc = Start-Process -FilePath $p.Exe -ArgumentList $p.ArgString -PassThru
+        $ctx.wrapperSessionId = (Get-Process -Id $PID).SessionId
+        if ($p.ArgString) { $proc = Start-Process -FilePath $p.Exe -ArgumentList $p.ArgString -PassThru }
+        else { $proc = Start-Process -FilePath $p.Exe -PassThru }
         $null = $proc.Handle   # keep the handle so ExitCode is readable
+        # The target is our child: record its owner and session right away (the uninstall's owner/session
+        # evidence). observed=false if the process is already gone.
+        $ctx.childPid = $proc.Id
+        $ctx.childObserved = $false
+        try {
+            $ctx.childSessionId = $proc.SessionId
+            $own = Invoke-CimMethod -InputObject (Get-CimInstance Win32_Process -Filter ('ProcessId=' + $proc.Id)) -MethodName GetOwner
+            $ctx.childOwner = ('{0}\{1}' -f $own.Domain, $own.User)
+            $ctx.childObserved = $true
+        } catch { }
+        ($ctx | ConvertTo-Json) | Set-Content -LiteralPath ($p.ResultFile + '.started') -Encoding UTF8
+        if ($p.Detach) {
+            # Detached launch (the S6 tray): report the pid and leave the process running.
+            $ctx.status = 'completed'
+            $ctx.exitCode = 0
+            $ctx.detached = $true
+            $ctx.wallSeconds = [math]::Round($sw.Elapsed.TotalSeconds, 1)
+            ($ctx | ConvertTo-Json) | Set-Content -LiteralPath $p.ResultFile -Encoding UTF8
+            exit 0
+        }
         $lastSig = ''
         while (-not $proc.WaitForExit(1000)) {
             try {
@@ -368,8 +396,9 @@ function Invoke-AsUser {
         [Parameter(Mandatory)]$User,
         [Parameter(Mandatory)][string]$Tag,
         [Parameter(Mandatory)][string]$Exe,
-        [Parameter(Mandatory)][string]$ArgString,
-        [Parameter(Mandatory)][string]$StepDir
+        [Parameter(Mandatory)][AllowEmptyString()][string]$ArgString,
+        [Parameter(Mandatory)][string]$StepDir,
+        [switch]$Detach
     )
     New-Item -ItemType Directory -Force -Path $StepDir | Out-Null
 
@@ -378,14 +407,14 @@ function Invoke-AsUser {
         $resultFile = Join-Path $StepDir "$Tag.$Method.result.json"
         $windowFile = Join-Path $StepDir "$Tag.$Method.windows-in-task.jsonl"
         $paramFile = Join-Path $StepDir "$Tag.$Method.params.json"
-        Write-Json ([ordered]@{ Exe = $Exe; ArgString = $ArgString; ResultFile = $resultFile; WindowFile = $windowFile }) $paramFile
+        Write-Json ([ordered]@{ Exe = $Exe; ArgString = $ArgString; ResultFile = $resultFile; WindowFile = $windowFile; Detach = [bool]$Detach }) $paramFile
         $psArgs = '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "{0}\Run-Scenario.ps1" -Mode Wrapper -ParamFile "{1}"' -f $WorkRoot, $paramFile
         @{ ResultFile = $resultFile; WindowFile = $windowFile; ParamFile = $paramFile; PsArgs = $psArgs }
     }
 
     $handle = [ordered]@{
         Tag = $Tag; Method = ''; TaskName = ''; Process = $null; Exe = $Exe; StartError = ''
-        ResultFile = ''; WindowFile = ''; StartedFile = ''; ErrFiles = @(); Notes = @()
+        ResultFile = ''; WindowFile = ''; StartedFile = ''; ErrFiles = @(); Notes = @(); Detached = [bool]$Detach
     }
 
     $taskName = "repro-$($User.Name)-$Tag"
@@ -684,12 +713,101 @@ function ConvertTo-MdCell {
 }
 
 # ---------------------------------------------------------------------------------------------
+# Pure helpers for the 1.0.2 scenarios (S5b, S6); tested by Test-Harness.ps1
+# ---------------------------------------------------------------------------------------------
+function Get-UninstallRunExits {
+    <# Ordered [UninstallRun] entries from an Inno uninstall log: params (the Exec parameters line) and the
+       exit code of the "Process exit code" line that follows it ($null when the entry never finished: a hang). #>
+    param([string]$Text)
+    $list = New-Object System.Collections.Generic.List[object]
+    if ($Text) {
+        foreach ($line in ($Text -split "\r?\n")) {
+            if ($line -match 'Running Exec parameters:\s*(.*?)\s*$') {
+                $list.Add([pscustomobject]@{ params = $Matches[1]; exitCode = $null })
+            } elseif ($line -match 'Process exit code:\s*(-?\d+)\s*$' -and $list.Count -gt 0) {
+                if ($null -eq $list[$list.Count - 1].exitCode) { $list[$list.Count - 1].exitCode = [int64]$Matches[1] }
+            }
+        }
+    }
+    $list.ToArray()
+}
+
+function Get-StopOutcome {
+    <# Classifies the app's "stop: ..." log line (after the 'yyyy-MM-dd HH:mm:ss | ' prefix):
+       not-running | no-listener | stopped | timeout | error | absent (no stop line) | multiple (more than one).
+       An unrecognised stop line is 'error', never a pass. #>
+    param([string[]]$Lines)
+    $found = New-Object System.Collections.Generic.List[string]
+    foreach ($l in @($Lines)) {
+        if ($l -match '^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} \| (stop: .*?)\s*$') { $found.Add($Matches[1]) }
+    }
+    if ($found.Count -eq 0) { return 'absent' }
+    if ($found.Count -gt 1) { return 'multiple' }
+    switch ($found[0]) {
+        'stop: not running' { 'not-running' }
+        'stop: a running instance has no stop listener (older build)' { 'no-listener' }
+        'stop: stopped' { 'stopped' }
+        'stop: timed out waiting for exit' { 'timeout' }
+        default { 'error' }
+    }
+}
+
+function Test-ExpectedV102Path {
+    <# Failure strings (empty = pass) for the 1.1 -> 1.0.2 downgrade scenarios. S5b: nothing running, so --stop
+       exits 3. S6: a 1.0.2 tray without a stop listener, so --stop exits 1, and the tray's owner and session must
+       match the uninstaller's (otherwise taskkill's 0 proves nothing about a same-user kill). #>
+    param(
+        [Parameter(Mandatory)][ValidateSet('S5b', 'S6')][string]$Scenario,
+        $Exits, [string[]]$AppLog, [int]$UninstallExitCode, [double]$WallSeconds, [bool]$AppDirExists,
+        [int]$FanProcsLeft, [string]$TrayOwner, [int]$TraySession, [string]$UninstallOwner, [int]$UninstallSession
+    )
+    $f = New-Object System.Collections.Generic.List[string]
+    if ($UninstallExitCode -ne 0) { $f.Add("uninstall exit code $UninstallExitCode, expected 0") }
+    if ($WallSeconds -gt 120) { $f.Add("uninstall took $WallSeconds s, limit 120 s") }
+    if ($AppDirExists) { $f.Add('app folder still present after uninstall') }
+    if ($FanProcsLeft -ne 0) { $f.Add("$FanProcsLeft LightweightAmdGpuFanControl process(es) still running after uninstall") }
+    $kill = '/C taskkill /F /IM LightweightAmdGpuFanControl.exe'
+    $want = $(if ($Scenario -eq 'S5b') { @(3, 128, 3) } else { @(1, 0, 3) })
+    $params = @('--stop', $kill, '--restore-auto')
+    $ex = @($Exits)
+    if ($ex.Count -ne 3) {
+        $f.Add("expected exactly 3 [UninstallRun] entries, got $($ex.Count)")
+    } else {
+        for ($i = 0; $i -lt 3; $i++) {
+            if ($ex[$i].params -ne $params[$i]) { $f.Add("UninstallRun entry $($i + 1) is '$($ex[$i].params)', expected '$($params[$i])'") }
+            elseif ($null -eq $ex[$i].exitCode) { $f.Add("UninstallRun '$($params[$i])' has no exit code (hung)") }
+            elseif ([int64]$ex[$i].exitCode -ne $want[$i]) { $f.Add("UninstallRun '$($params[$i])' exit $($ex[$i].exitCode), expected $($want[$i])") }
+        }
+    }
+    $unsupported = $false
+    foreach ($l in @($AppLog)) { if ($l -match '(^|\| )Unsupported arguments for 1\.0\.x: --restore-auto; exit 3\s*$') { $unsupported = $true } }
+    if (-not $unsupported) { $f.Add("app log lacks 'Unsupported arguments for 1.0.x: --restore-auto; exit 3'") }
+    $outcome = Get-StopOutcome -Lines $AppLog
+    $wantOutcome = $(if ($Scenario -eq 'S5b') { 'not-running' } else { 'no-listener' })
+    if ($outcome -ne $wantOutcome) { $f.Add("stop outcome '$outcome', expected '$wantOutcome'") }
+    if ($Scenario -eq 'S6') {
+        if (-not $TrayOwner -or -not $UninstallOwner -or $TrayOwner -ne $UninstallOwner) {
+            $f.Add("tray owner '$TrayOwner' differs from uninstall owner '$UninstallOwner' (or empty)")
+        }
+        if ($TraySession -ne $UninstallSession) { $f.Add("tray session $TraySession differs from uninstall session $UninstallSession") }
+    }
+    $f.ToArray()
+}
+
+function Get-DataDirDeleteLines {
+    <# Inno uninstall log lines about a failed delete (the data folder [UninstallDelete]), as text. #>
+    param([string]$Text)
+    if (-not $Text) { return @() }
+    @($Text -split "\r?\n" | Where-Object { $_ -match 'Failed to delete|Could not delete|Error deleting|Failed to remove|Will not retry' })
+}
+
+# ---------------------------------------------------------------------------------------------
 # Scenario mode
 # ---------------------------------------------------------------------------------------------
 function Invoke-Scenario {
     param([Parameter(Mandatory)][string]$Scenario)
     $def = $ScenarioTable[$Scenario]
-    $installers = @{ test = $TestInstaller; v100 = $V100Installer; v101 = $V101Installer }
+    $installers = @{ test = $TestInstaller; v100 = $V100Installer; v101 = $V101Installer; v102 = $V102Installer }
     foreach ($k in $def.Steps) {
         if (-not $installers[$k] -or -not (Test-Path -LiteralPath $installers[$k])) { throw "Installer for '$k' not found: $($installers[$k])" }
     }
@@ -766,11 +884,60 @@ function Invoke-Scenario {
         } else {
             $argString = '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /LOG="{0}"' -f $log
             Write-Host "[$Scenario] $tag"
+            $isV102 = ($Scenario -eq 'S5b' -or $Scenario -eq 'S6')
+            $logHandle = $null; $logStart = 0; $logPath = ''
+            $tray = $null; $trayFailure = ''
+            if ($isV102) {
+                # Hold the app's log.txt open (ReadWrite|Delete sharing) across the uninstall so its --stop and
+                # --restore-auto lines can be read before [UninstallDelete] removes the data folder.
+                $dataDir = Join-Path $localAppData $DataRelPath
+                $logPath = Join-Path $dataDir 'log.txt'
+                New-Item -ItemType Directory -Force -Path $dataDir | Out-Null
+                if (-not (Test-Path -LiteralPath $logPath)) { New-Item -ItemType File -Path $logPath | Out-Null }
+                $logHandle = [IO.File]::Open($logPath, 'Open', 'Read', 'ReadWrite,Delete')
+                $logStart = $logHandle.Length
+                if ($def.StartTray) {
+                    $appExe = Join-Path $localAppData "Programs\Bitworks\$AppFolderName\LightweightAmdGpuFanControl.exe"
+                    $th = Invoke-AsUser -User $user -Tag ('step{0}-tray' -f $n) -Exe $appExe -ArgString '' -StepDir $outDir -Detach
+                    $tw = Watch-Step -Handle $th -UserName $user.Name -TimeoutSec 120
+                    if ($tw.Kind -ne 'completed') { $trayFailure = "tray did not start (launch $($tw.Outcome) $($tw.Detail))" }
+                    else {
+                        $tsw = [Diagnostics.Stopwatch]::StartNew()
+                        while ($tsw.Elapsed.TotalSeconds -lt 20 -and -not $tray) {
+                            $tp = @(Get-CimInstance Win32_Process -Filter "Name='LightweightAmdGpuFanControl.exe'" -ErrorAction SilentlyContinue)
+                            if ($tp.Count -gt 0) {
+                                $o = Invoke-CimMethod -InputObject $tp[0] -MethodName GetOwner
+                                $tray = [pscustomobject]@{ pid = [int]$tp[0].ProcessId; owner = ('{0}\{1}' -f $o.Domain, $o.User); session = [int]$tp[0].SessionId }
+                            } else { Start-Sleep -Milliseconds 500 }
+                        }
+                        if (-not $tray) { $trayFailure = 'tray did not start' }
+                    }
+                    # The tray task is left registered on purpose (unregistering could stop its process); Cleanup removes it.
+                }
+            }
+            try {
+            if ($trayFailure) { $failures.Add($trayFailure) }
             $h = Invoke-AsUser -User $user -Tag $tag -Exe $unins -ArgString $argString -StepDir $outDir
             $w = Watch-Uninstall -Handle $h -UserName $user.Name -TimeoutSec $TimeoutSec -TempDir $tempDir -PollFile $pollFile
             if ($w.Kind -eq 'completed') {
                 $settled = Wait-UninstallSettled -UserName $user.Name
                 if ($settled -ge 1) { $h.Notes += ('waited {0} s for the uninstaller second phase to exit' -f $settled) }
+            }
+            $appLogLines = @()
+            $appLogName = ''
+            if ($logHandle) {
+                try {
+                    $null = $logHandle.Seek($logStart, 'Begin')
+                    $rd = New-Object IO.StreamReader($logHandle, [Text.Encoding]::UTF8, $true, 4096, $true)
+                    $appLogText = $rd.ReadToEnd()
+                    $rd.Dispose()
+                    $appLogName = "$tag.applog.txt"
+                    $appLogText | Set-Content -LiteralPath (Join-Path $outDir $appLogName) -Encoding UTF8
+                    $appLogLines = @($appLogText -split "\r?\n" | Where-Object { $_ })
+                } catch { $h.Notes += ('app log read failed: ' + $_.Exception.Message) }
+            }
+            } finally {
+                if ($logHandle) { $logHandle.Dispose() }
             }
             $post = Get-PostState $localAppData
             # Window rows from the poll and the in-task files. Each row's windows may be nested one level
@@ -797,6 +964,33 @@ function Invoke-Scenario {
                 lastTaskResult = $w.LastTaskResult; wallSeconds = $(if ($w.Kind -eq 'completed') { $w.WallSeconds } else { $w.WaitedSeconds })
                 log = (Split-Path $log -Leaf); logExists = (Test-Path -LiteralPath $log)
                 post = $post; newTemp = $w.NewTempItems; windowTexts = $texts
+            }
+            $innoText = $(if (Test-Path -LiteralPath $log) { Get-Content -Raw -LiteralPath $log -ErrorAction SilentlyContinue } else { '' })
+            $uninst | Add-Member -NotePropertyName dataDirDeleteLines -NotePropertyValue @(Get-DataDirDeleteLines -Text $innoText)
+            if ($isV102) {
+                $exits = @(Get-UninstallRunExits -Text $innoText)
+                $stopOutcome = Get-StopOutcome -Lines $appLogLines
+                $fanLeft = @(Get-Process -Name 'LightweightAmdGpuFanControl' -ErrorAction SilentlyContinue).Count
+                # Uninstall owner/session come from the wrapper (the uninstaller's parent): observed when it
+                # could read the child's own values, otherwise the repro user and the wrapper's session.
+                $unCtx = $null
+                if (Test-Path -LiteralPath $h.StartedFile) { try { $unCtx = Get-Content -Raw -LiteralPath $h.StartedFile | ConvertFrom-Json } catch { } }
+                $unObserved = [bool]($unCtx -and $unCtx.childObserved)
+                $unOwner = $(if ($unObserved) { [string]$unCtx.childOwner } elseif ($unCtx) { [string]$unCtx.user } else { "$env:COMPUTERNAME\$($user.Name)" })
+                $unSession = $(if ($unObserved) { [int]$unCtx.childSessionId } elseif ($unCtx -and $null -ne $unCtx.wrapperSessionId) { [int]$unCtx.wrapperSessionId } else { -1 })
+                $wallV = $(if ($null -ne $uninst.wallSeconds) { [double]$uninst.wallSeconds } else { 0 })
+                $codeV = $(if ($null -ne $w.ExitCode) { [int]$w.ExitCode } else { -1 })
+                $v102f = @(Test-ExpectedV102Path -Scenario $Scenario -Exits $exits -AppLog $appLogLines -UninstallExitCode $codeV `
+                        -WallSeconds $wallV -AppDirExists ([bool]$post.appDirExists) -FanProcsLeft $fanLeft `
+                        -TrayOwner $(if ($tray) { $tray.owner } else { '' }) -TraySession $(if ($tray) { $tray.session } else { -1 }) `
+                        -UninstallOwner $unOwner -UninstallSession $unSession)
+                foreach ($x in $v102f) { $failures.Add($x) }
+                $uninst | Add-Member -NotePropertyName v102 -NotePropertyValue ([pscustomobject]@{
+                        exits = $exits; stopOutcome = $stopOutcome; trayPid = $(if ($tray) { $tray.pid } else { $null })
+                        trayOwner = $(if ($tray) { $tray.owner } else { '' }); traySession = $(if ($tray) { $tray.session } else { $null })
+                        uninstallOwner = $unOwner; uninstallSession = $unSession; uninstallObserved = $unObserved
+                        applog = $appLogName; fanProcsLeft = $fanLeft; dataDirExists = [bool]$post.dataDirExists
+                    })
             }
             $steps.Add($uninst)
             if ($h.TaskName) {
@@ -860,6 +1054,17 @@ function Write-ScenarioSummary {
     foreach ($s in $Result.steps) {
         foreach ($note in @($s.notes)) { if ($note) { $md.Add("- note: $(ConvertTo-MdCell $note)") } }
         if ($s.detail) { $md.Add("- $($s.kind) outcome $($s.outcome): $(ConvertTo-MdCell $s.detail)") }
+        if ($s.PSObject.Properties['dataDirDeleteLines'] -and @($s.dataDirDeleteLines).Count -gt 0) {
+            $md.Add("- data folder delete lines in the Inno log: ``$(ConvertTo-MdCell (@($s.dataDirDeleteLines) -join ' / '))``")
+        }
+        if ($s.PSObject.Properties['v102'] -and $s.v102) {
+            $v = $s.v102
+            $ex = (@($v.exits) | ForEach-Object { '{0} => {1}' -f $_.params, $(if ($null -eq $_.exitCode) { 'no exit code' } else { $_.exitCode }) }) -join '; '
+            $md.Add("- UninstallRun: ``$(ConvertTo-MdCell $ex)``")
+            $md.Add("- stop outcome: ``$($v.stopOutcome)``; app log: ``$($v.applog)``; fan processes left: $($v.fanProcsLeft)")
+            $md.Add("- tray: pid $($v.trayPid) owner ``$(ConvertTo-MdCell $v.trayOwner)`` session $($v.traySession); uninstall: owner ``$(ConvertTo-MdCell $v.uninstallOwner)`` session $($v.uninstallSession) observed=$($v.uninstallObserved)")
+            $md.Add("- data folder exists after uninstall: $($v.dataDirExists) (recorded, not asserted: the harness held log.txt open, so it may be left behind)")
+        }
         if ($s.kind -eq 'uninstall' -and $s.windowTexts) {
             $md.Add('- window text seen during uninstall:')
             foreach ($t in ($s.windowTexts | Select-Object -First 15)) { $md.Add("  - ``$(ConvertTo-MdCell $t)``") }

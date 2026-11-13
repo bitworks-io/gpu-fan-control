@@ -32,6 +32,9 @@ static class Program
         if (options.Mode == LaunchMode.RestoreAuto)
             return RestoreAutoRunner.Run(log);
 
+        if (options.Mode == LaunchMode.ResetTuningToFactory)
+            return FactoryResetCommand.Run(log, options.GpuUniqueId!.Value);
+
         if (options.Mode == LaunchMode.Stop)
             return StopCommand.Run(log);
 

@@ -329,17 +329,22 @@ public sealed class AdlFanControlBackend : IFanControlBackend
             throw new InvalidOperationException($"ADL Overdrive5 fan set failed with code {result}.");
     }
 
-    public void RestoreAutomaticFanControl()
+    public void RestoreAutomaticFanControl() => TryRestoreAutomaticFanControl();
+
+    /// <summary>The ADL fallback has no release plan.</summary>
+    public LightweightAmdGpuFanControl.Recovery.ReleaseAction? LastReleaseAction => null;
+
+    public bool TryRestoreAutomaticFanControl()
     {
         if (_api == null || _adapterIndex < 0)
-            return;
+            return true; // nothing to release
 
         try
         {
             if (_overdriveVersion == 5)
             {
                 _api.Overdrive5FanSpeedToDefault?.Invoke(_api.Context, _adapterIndex, ThermalControllerIndex);
-                return;
+                return true;
             }
 
             var fan = new ADLODNFanControl();
@@ -348,7 +353,7 @@ public sealed class AdlFanControlBackend : IFanControlBackend
                 : _api.OverdriveNFanControlGet(_api.Context, _adapterIndex, ref fan);
 
             if (getResult != AdlNativeApi.Ok)
-                return;
+                return false;
 
             fan.iMode = AutomaticMode;
             fan.iFanControlMode = AutomaticMode;
@@ -357,10 +362,12 @@ public sealed class AdlFanControlBackend : IFanControlBackend
                 _api.CustomFanSet(_api.Context, _adapterIndex, ref fan);
             else
                 _api.OverdriveNFanControlSet(_api.Context, _adapterIndex, ref fan);
+            return true;
         }
         catch (Exception ex)
         {
             _logService.Log("ADL restore-to-automatic failed.", ex);
+            return false;
         }
     }
 

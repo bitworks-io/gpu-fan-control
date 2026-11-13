@@ -137,6 +137,26 @@ internal sealed class BaselineJournalSession
         }
     }
 
+    /// <summary>
+    /// Marks the GPU's entry clean only when it is dirty AND a legacy entry (no recorded pre-app factory flag):
+    /// the caller has just returned that GPU to factory settings. Any other entry is left as it is.
+    /// </summary>
+    public bool MarkCleanIfLegacy(GpuIdentity id)
+    {
+        lock (_gate)
+        {
+            try
+            {
+                var e = _journal.Find(id);
+                if (e == null || !e.Dirty || e.PreAppAtFactory != null)
+                    return false;
+                MarkClean(id);
+                return true;
+            }
+            catch (Exception ex) { Log(_log, $"journal mark-clean-if-legacy failed for '{id.Name}': {ex.GetType().Name}: {ex.Message}"); return false; }
+        }
+    }
+
     public void PruneAbsent(IEnumerable<GpuIdentity> present, bool includeDirty)
     {
         lock (_gate)

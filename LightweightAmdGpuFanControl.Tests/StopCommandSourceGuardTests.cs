@@ -17,7 +17,7 @@ public class StopCommandSourceGuardTests
     public void StopCommand_OpensOnlyAndNeverKills()
     {
         var path = Path.Combine(FindRepoRoot(), "LightweightAmdGpuFanControl", "Services", "StopCommand.cs");
-        var source = File.ReadAllText(path);
+        var source = SourceText.Read(path);
         Assert.Contains("TryOpenExisting", source);
         foreach (var token in new[] { "new EventWaitHandle", "Kill(", "taskkill", "TerminateProcess" })
             Assert.DoesNotContain(token, source);

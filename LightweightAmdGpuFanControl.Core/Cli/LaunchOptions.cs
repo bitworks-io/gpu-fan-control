@@ -1,6 +1,6 @@
 namespace LightweightAmdGpuFanControl.Cli;
 
-public enum LaunchMode { Tray, Probe, RestoreAuto, Stop }
+public enum LaunchMode { Tray, Probe, RestoreAuto, Stop, ResetTuningToFactory }
 
 /// <summary>Process exit codes shared by every launch mode.</summary>
 public static class ExitCodes
@@ -29,11 +29,16 @@ public sealed class LaunchOptions
     /// <summary>Value of <c>--status-file</c>; unvalidated. Never causes a usage error.</summary>
     public string? StatusFile { get; init; }
     public string? StatusFileError { get; init; }
+    /// <summary>Value of <c>--gpu</c> (an ADLX uniqueId); set only when it parsed as an integer.</summary>
+    public int? GpuUniqueId { get; init; }
 
     public static LaunchOptions Parse(IReadOnlyList<string>? args)
     {
         bool probe = false, restore = false, stop = false, automation = false, noPreload = false;
         string? statusFile = null, statusFileError = null;
+        bool reset = false, gpuGiven = false;
+        int gpuCount = 0;
+        int? gpuId = null;
         var ignored = new List<string>();
 
         if (args != null)
@@ -46,6 +51,21 @@ public sealed class LaunchOptions
                 else if (Is(a, "--stop")) stop = true;
                 else if (Is(a, "--automation")) automation = true;
                 else if (Is(a, "--no-preload")) noPreload = true;
+                else if (Is(a, "--reset-tuning-to-factory")) reset = true;
+                else if (Is(a, "--gpu"))
+                {
+                    gpuGiven = true;
+                    gpuCount++;
+                    gpuId = null;
+                    string? next = i + 1 < args.Count ? args[i + 1] : null;
+                    if (next != null && !next.StartsWith("--", StringComparison.Ordinal))
+                    {
+                        i++;
+                        if (int.TryParse(next, System.Globalization.NumberStyles.AllowLeadingSign,
+                                System.Globalization.CultureInfo.InvariantCulture, out var parsed))
+                            gpuId = parsed;
+                    }
+                }
                 else if (Is(a, "--status-file"))
                 {
                     string? next = i + 1 < args.Count ? args[i + 1] : null;
@@ -66,20 +86,26 @@ public sealed class LaunchOptions
         }
 
         string? error = null;
-        if (probe && restore) error = "--probe and --restore-auto cannot be combined";
+        if (reset && (probe || restore || stop)) error = "--reset-tuning-to-factory cannot be combined with --probe, --restore-auto or --stop";
+        else if (gpuCount > 1) error = "--gpu was given more than once";
+        else if (reset && !gpuGiven) error = "--reset-tuning-to-factory needs --gpu <uniqueId>";
+        else if (gpuGiven && gpuId == null) error = "--gpu needs an integer uniqueId";
+        else if (gpuGiven && !reset) error = "--gpu is only valid with --reset-tuning-to-factory";
+        else if (probe && restore) error = "--probe and --restore-auto cannot be combined";
         else if (stop && probe) error = "--stop and --probe cannot be combined";
         else if (stop && restore) error = "--stop and --restore-auto cannot be combined";
         else if (noPreload && !probe) error = "--no-preload is only valid with --probe";
 
         return new LaunchOptions
         {
-            Mode = probe ? LaunchMode.Probe : restore ? LaunchMode.RestoreAuto : stop ? LaunchMode.Stop : LaunchMode.Tray,
+            Mode = reset ? LaunchMode.ResetTuningToFactory : probe ? LaunchMode.Probe : restore ? LaunchMode.RestoreAuto : stop ? LaunchMode.Stop : LaunchMode.Tray,
             Automation = automation,
             NoPreload = noPreload,
             Ignored = ignored,
             Error = error,
             StatusFile = statusFile,
             StatusFileError = statusFileError,
+            GpuUniqueId = gpuId,
         };
     }
 

@@ -4,7 +4,7 @@ All notable changes to **Lightweight AMD GPU Fan Control** are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.0.2] — 2026-11-12
+## [1.0.2] — Unreleased
 
 ### Fixed
 

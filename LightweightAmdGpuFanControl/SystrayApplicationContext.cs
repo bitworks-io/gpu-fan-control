@@ -19,6 +19,7 @@ public sealed class SystrayApplicationContext : ApplicationContext
     private PreferencesForm? _preferencesForm;
     private readonly SynchronizationContext _uiContext;
     private IDisposable? _stopListener;
+    private readonly OnceGate _exitGate = new OnceGate();
 
     public SystrayApplicationContext()
     {
@@ -261,6 +262,7 @@ public sealed class SystrayApplicationContext : ApplicationContext
 
     private void Exit()
     {
+        if (!_exitGate.TryEnter()) return;
         try { _stopListener?.Dispose(); } catch { }
         _tooltipTimer.Stop();
         _tooltipTimer.Dispose();

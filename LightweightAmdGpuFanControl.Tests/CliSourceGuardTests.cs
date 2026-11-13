@@ -111,6 +111,25 @@ public class CliSourceGuardTests
     }
 
     [Fact]
+    public void Tray_ExitRunsOnce_GateIsTheFirstStatement()
+    {
+        var s = App("SystrayApplicationContext.cs");
+        Assert.Contains("private readonly OnceGate _exitGate = new OnceGate();", s);
+        var body = MethodBody(s, "private void Exit()").TrimStart('{').TrimStart();
+        Assert.StartsWith("if (!_exitGate.TryEnter()) return;", body);
+    }
+
+    [Fact]
+    public void FanControlService_StopIsIdempotent()
+    {
+        var f = App("Services", "FanControlService.cs");
+        var stop = MethodBody(f, "public void Stop()");
+        var dispose = IndexOrFail(stop, "_channelSet?.Dispose();");
+        var nullSet = IndexOrFail(stop, "_channelSet = null;", dispose);
+        IndexOrFail(stop, "_channels = new List<ControlChannel>();", nullSet);
+    }
+
+    [Fact]
     public void Tray_ListensForStopAndDisposesTheListenerOnEveryExitPath()
     {
         var s = App("SystrayApplicationContext.cs");

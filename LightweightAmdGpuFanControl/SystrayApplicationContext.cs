@@ -17,6 +17,9 @@ public sealed class SystrayApplicationContext : ApplicationContext
     private readonly LogService _logService;
     private readonly System.Windows.Forms.Timer _tooltipTimer;
     private PreferencesForm? _preferencesForm;
+    private readonly SynchronizationContext _uiContext;
+    private IDisposable? _stopListener;
+    private readonly OnceGate _exitGate = new OnceGate();
 
     public SystrayApplicationContext()
     {
@@ -34,6 +37,15 @@ public sealed class SystrayApplicationContext : ApplicationContext
 
         _notifyIcon.DoubleClick += (_, _) => ShowPreferences();
         _notifyIcon.ContextMenuStrip = CreateContextMenu();
+
+        var current = SynchronizationContext.Current;
+        if (current == null)
+        {
+            current = new WindowsFormsSynchronizationContext();
+            SynchronizationContext.SetSynchronizationContext(current);
+        }
+        _uiContext = current;
+
         _fanControlService.Start(this, _notifyIcon);
 
         // Best-effort restore of automatic fan control on any exit path, including crashes and
@@ -52,6 +64,9 @@ public sealed class SystrayApplicationContext : ApplicationContext
         // Live tooltip refresh (~2.5s matches poll interval).
         _tooltipTimer = new System.Windows.Forms.Timer { Interval = 2500, Enabled = true };
         _tooltipTimer.Tick += (_, _) => RefreshTooltip();
+
+        // Graceful --stop (installer/uninstaller): exit through the normal path, which restores every backend.
+        _stopListener = StopSignal.Listen(() => _uiContext.Post(_ => Exit(), null), _logService);
     }
 
     private void RefreshTooltip()
@@ -247,6 +262,8 @@ public sealed class SystrayApplicationContext : ApplicationContext
 
     private void Exit()
     {
+        if (!_exitGate.TryEnter()) return;
+        try { _stopListener?.Dispose(); } catch { }
         _tooltipTimer.Stop();
         _tooltipTimer.Dispose();
         _fanControlService.Stop();
@@ -263,6 +280,7 @@ public sealed class SystrayApplicationContext : ApplicationContext
     /// </summary>
     private void ShutdownForExternalClose()
     {
+        try { _stopListener?.Dispose(); } catch { }
         try { _tooltipTimer.Stop(); } catch { }
         try { _fanControlService.Stop(); } catch { } // restores every GPU to auto + tears down the session
         try { _notifyIcon.Visible = false; _notifyIcon.Dispose(); } catch { }

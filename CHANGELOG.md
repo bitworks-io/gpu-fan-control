@@ -4,6 +4,19 @@ All notable changes to **Lightweight AMD GPU Fan Control** are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.2] — Unreleased
+
+### Fixed
+
+- An uninstall after installing a 1.x (1.1 or later) build and then this 1.0.x version
+  no longer hangs on a "fan control unavailable" dialog. `--stop` now stops a running copy
+  gracefully (its fan settings are restored). Any other `--` option exits at once
+  (code 3) without starting the tray. A launch with no arguments is unchanged.
+
+### Notes
+
+- Don't downgrade below 1.0.2 after installing a 1.1 build.
+
 ## [1.0.1] — 2026-11-08
 
 ### Fixed

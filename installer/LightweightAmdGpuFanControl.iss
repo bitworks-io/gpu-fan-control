@@ -3,7 +3,7 @@
 
 #define MyAppName "Lightweight AMD GPU Fan Control"
 #ifndef MyAppVersion
-  #define MyAppVersion "1.0.1"
+  #define MyAppVersion "1.0.2"
 #endif
 #define MyAppPublisher "Bitworks"
 #define MyAppExeName "LightweightAmdGpuFanControl.exe"

@@ -129,3 +129,8 @@ jobs:
         with:
           files: ./release/LightweightAmdGpuFanControl-Setup.exe
           generate_release_notes: true
+          # The 1.0.x line never becomes "latest" by itself: downstream automation installs whatever
+          # releases/latest points at, and the 1.1.x line is the one to offer there. A 1.0.x release is
+          # promoted by hand only on purpose (gh release edit <tag> --latest). A hyphenated tag is a prerelease.
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          make_latest: 'false'

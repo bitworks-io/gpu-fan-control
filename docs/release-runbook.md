@@ -23,6 +23,10 @@ the rest. Everything below is the discipline around that one action.
    `softprops/action-gh-release@v2`, attaching `Setup.exe`, with
    `generate_release_notes: true`.
 
+   On the 1.0.x line the release step publishes with `make_latest: 'false'` (and
+   `prerelease` for a hyphenated tag), so a 1.0.x tag never becomes "latest" by itself;
+   promote one by hand only on purpose (`gh release edit <tag> --latest`).
+
 The `build` job builds the installer **fresh from the tagged commit** — the release
 binary is not any previously-downloaded artifact.
 

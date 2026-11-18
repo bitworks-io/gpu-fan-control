@@ -5,6 +5,7 @@ using LightweightAmdGpuFanControl.Control;
 using LightweightAmdGpuFanControl.Gpu;
 using LightweightAmdGpuFanControl.Gpu.Native;
 using LightweightAmdGpuFanControl.Models;
+using LightweightAmdGpuFanControl.Recovery;
 
 namespace LightweightAmdGpuFanControl.Services;
 
@@ -168,10 +169,23 @@ public class FanControlService
         {
             if (_disposed) return;
             bool ok;
+            string? testError;
             lock (_controlLock)
             {
                 if (_disposed) return;
-                ok = _fanControlTest.RunTest(channel.Backend, _logService);
+                ok = _fanControlTest.RunTest(channel.Backend, _logService, out testError);
+                // Fail closed: an error in the self-test refuses this GPU for the rest of the run.
+                if (testError != null)
+                {
+                    channel.Control.OnWriteError(testError);
+                    ControlIssueLog.Add(channel.Backend.AdapterName, GpuIssueStates.Refused, "self-test error: " + (channel.Control.Message ?? ""));
+                    _logService.Log($"{channel.Backend.AdapterName}: self-test error (fan write or telemetry read); refusing this GPU ({channel.Control.Message}).");
+                    NotifyGpuIssue(channel.Backend.AdapterName, GpuIssueStates.Refused, null);
+                }
+                else if (ok)
+                    channel.Control.BeginRegulating();
+                else
+                    channel.Control.Refuse("self-test did not pass");
             }
             channel.TestPassed = ok;
             channel.TestCompleted = true;
@@ -250,6 +264,7 @@ public class FanControlService
                     channel.Backend.RestoreAutomaticFanControl();
                     channel.ControlActive = false;
                     channel.LastAppliedPercent = -1;
+                    channel.State.HasPrevious = false;
                 }
             }
         }
@@ -287,6 +302,7 @@ public class FanControlService
                     channel.Backend.RestoreAutomaticFanControl();
                     channel.ControlActive = false;
                     channel.LastAppliedPercent = -1;
+                    channel.State.HasPrevious = false;
                 }
                 catch (Exception ex)
                 {
@@ -404,6 +420,14 @@ public class FanControlService
         int? fanPercent = null;
         int? fanRpm = null;
 
+        // Refused or degraded: never write to this GPU again this run (it was already released once if needed).
+        if (!channel.Control.MayWrite)
+        {
+            var idle = SafeTelemetry(backend);
+            return new GpuStatus(backend.AdapterName, backend.GpuId, enabled, false,
+                SafeTemp(backend), idle.percent, idle.rpm);
+        }
+
         // A disabled channel, or any channel while paused / whose test failed, is relinquished
         // to the driver's automatic curve exactly once, then left alone.
         if (_paused || !enabled || (channel.TestCompleted && !channel.TestPassed))
@@ -413,6 +437,7 @@ public class FanControlService
                 backend.RestoreAutomaticFanControl();
                 channel.ControlActive = false;
                 channel.LastAppliedPercent = -1;
+                channel.State.HasPrevious = false;
             }
             var telemetry = SafeTelemetry(backend);
             return new GpuStatus(backend.AdapterName, backend.GpuId, enabled, false,
@@ -420,13 +445,14 @@ public class FanControlService
         }
 
         temp = backend.GetTemperatureC();
-        var decision = _policy.Decide(new TempReading(temp), settings, channel.State);
+        var decision = _policy.Decide(new TempReading(temp, MonotonicMs()), settings, channel.State);
 
         if (decision.Action == FanAction.RelinquishToAuto)
         {
             backend.RestoreAutomaticFanControl();
             channel.ControlActive = false;
             channel.LastAppliedPercent = -1;
+            channel.State.HasPrevious = false;
             _logService.Log($"{backend.AdapterName}: sensor read failed repeatedly; relinquished to driver automatic.");
         }
         else
@@ -434,8 +460,20 @@ public class FanControlService
             bool reassert = (_pollCount % ReassertEveryTicks) == 0;
             if (decision.Percent != channel.LastAppliedPercent || reassert)
             {
-                backend.SetFanPercent(decision.Percent);
-                channel.LastAppliedPercent = decision.Percent;
+                if (channel.Control.MayWrite)
+                {
+                    try
+                    {
+                        backend.SetFanPercent(decision.Percent);
+                        channel.LastAppliedPercent = decision.Percent;
+                    }
+                    catch (Exception ex)
+                    {
+                        HandleWriteError(channel, ex);
+                        var failed = SafeTelemetry(backend);
+                        return new GpuStatus(backend.AdapterName, backend.GpuId, true, false, temp, failed.percent, failed.rpm);
+                    }
+                }
             }
             channel.ControlActive = true;
             fanPercent = decision.Percent;
@@ -444,6 +482,48 @@ public class FanControlService
         var tele = SafeTelemetry(backend);
         return new GpuStatus(backend.AdapterName, backend.GpuId, true, channel.ControlActive,
             temp, fanPercent ?? tele.percent, tele.rpm);
+    }
+
+    /// <summary>Monotonic milliseconds for the ramp's decrease dwell. Never wall-clock: a clock step must not break the dwell.</summary>
+    private static long MonotonicMs() =>
+        System.Diagnostics.Stopwatch.GetTimestamp() * 1000 / System.Diagnostics.Stopwatch.Frequency;
+
+    /// <summary>
+    /// A fan write failed during regulation. The GPU leaves regulation for the rest of the run: it is released once
+    /// through the backend's restore (the planner path, confirmed by IsAtFactory where that plan applies) and is never
+    /// written again. Caller holds <c>_controlLock</c>. Never retries.
+    /// </summary>
+    private void HandleWriteError(ControlChannel channel, Exception ex)
+    {
+        var action = channel.Control.OnWriteError(ex.Message);
+        _logService.Log($"{channel.Backend.AdapterName}: fan write failed during regulation; no further writes to this GPU this run.", ex);
+        if (action == WriteErrorAction.ReleaseOnce)
+        {
+            bool released = channel.Backend.TryRestoreAutomaticFanControl();
+            channel.ControlActive = false;
+            channel.LastAppliedPercent = -1;
+            channel.State.HasPrevious = false;
+            string outcome = ReleaseWording.Describe(released, channel.Backend.LastReleaseAction);
+            _logService.Log($"{channel.Backend.AdapterName}: after the fan write error, {outcome}.");
+            // The release (and any release-incomplete record) is done before this, so the in-run status carries both.
+            ControlIssueLog.Add(channel.Backend.AdapterName, GpuIssueStates.Degraded, channel.Control.Message ?? "");
+            NotifyGpuIssue(channel.Backend.AdapterName, GpuIssueStates.Degraded, outcome);
+        }
+    }
+
+    /// <summary>
+    /// Tray balloon when a GPU becomes refused or degraded. The tracker moves to those states once per GPU, so this
+    /// shows at most once per GPU. Automation mode shows no UI.
+    /// </summary>
+    private void NotifyGpuIssue(string gpuName, string state, string? releaseOutcome)
+    {
+        var icon = _notifyIcon;
+        if (icon == null || _automation)
+            return;
+        string text = state == GpuIssueStates.Refused
+            ? $"Fan control was not started for {gpuName} because a fan setting failed. The driver keeps control of that fan."
+            : $"A fan setting failed for {gpuName}. The app stopped controlling it; {releaseOutcome}. See the log.";
+        PostToUi(() => icon.ShowBalloonTip(8000, "Fan control stopped for a GPU", text, ToolTipIcon.Warning));
     }
 
     private static double? SafeTemp(IFanControlBackend backend)
@@ -469,6 +549,7 @@ public class FanControlService
 
         public IFanControlBackend Backend { get; }
         public PolicyState State { get; } = new();
+        public GpuControlTracker Control { get; } = new(); // only mutated under _controlLock
         public volatile bool TestCompleted;
         public volatile bool TestPassed;
         public bool ControlActive; // only mutated under _controlLock

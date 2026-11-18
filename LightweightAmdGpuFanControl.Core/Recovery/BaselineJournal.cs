@@ -10,8 +10,11 @@ public sealed record GpuIdentity(string Name, int UniqueId, int StateCount)
     public string Key => $"{Name}|{UniqueId}";
 }
 
-/// <summary>Pre-app fan state: per-tuning-state speeds plus the zero-RPM flag.</summary>
-public sealed record FanBaseline(IReadOnlyList<int> Speeds, bool ZeroRpmSupported, bool ZeroRpm);
+/// <summary>
+/// Pre-app fan state: per-tuning-state speeds plus the zero-RPM flag. <paramref name="PreAppAtFactory"/> is whether the
+/// whole GPU's tuning was at factory settings before the app's first write (null: unknown).
+/// </summary>
+public sealed record FanBaseline(IReadOnlyList<int> Speeds, bool ZeroRpmSupported, bool ZeroRpm, bool? PreAppAtFactory = null);
 
 public sealed class BaselineEntry
 {
@@ -22,6 +25,8 @@ public sealed class BaselineEntry
     public int[]? Speeds { get; set; }
     public bool ZeroRpmSupported { get; set; }
     public bool ZeroRpm { get; set; }
+    /// <summary>Whether the GPU was at factory settings before the app's first write; null for entries written before rc.3.</summary>
+    public bool? PreAppAtFactory { get; set; }
     public bool Dirty { get; set; }
     public string Utc { get; set; } = "";
 }
@@ -92,6 +97,7 @@ public sealed class BaselineJournal
         e.Speeds = b.Speeds.ToArray();
         e.ZeroRpmSupported = b.ZeroRpmSupported;
         e.ZeroRpm = b.ZeroRpm;
+        e.PreAppAtFactory = b.PreAppAtFactory;
         e.Dirty = true;
         e.Utc = utc.ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture);
     }
@@ -184,8 +190,14 @@ public static class BaselinePlanner
         if (entry.ZeroRpmSupported != captured.ZeroRpmSupported) return Captured(BaselineChoiceKind.Invalid, "zero-RPM capability differs from the journal");
 
         if (captured.Speeds.SequenceEqual(entry.Speeds) && (!captured.ZeroRpmSupported || captured.ZeroRpm == entry.ZeroRpm))
-            return Captured(BaselineChoiceKind.AlreadyRestored, "current state already equals the journaled pre-app state");
-        if (!LooksAppWritten(captured))
+        {
+            // Equal points are not enough: a points-only restore leaves a factory-mode GPU under manual tuning with
+            // exactly these points. Already restored only if the pre-app GPU was not at factory, or it reads at factory now.
+            if (entry.PreAppAtFactory != true || captured.PreAppAtFactory == true)
+                return Captured(BaselineChoiceKind.AlreadyRestored, "current state already equals the journaled pre-app state");
+            // Otherwise it stays a Journal choice (a factory reset); the points need not look app-written.
+        }
+        else if (!LooksAppWritten(captured))
             return Captured(BaselineChoiceKind.Stale, "current state does not look app-written; the journal entry is stale");
 
         return new BaselineChoice
@@ -193,7 +205,7 @@ public static class BaselinePlanner
             Kind = BaselineChoiceKind.Journal,
             CapturedState = captured,
             Entry = entry,
-            Baseline = new FanBaseline(entry.Speeds.ToArray(), entry.ZeroRpmSupported, entry.ZeroRpm),
+            Baseline = new FanBaseline(entry.Speeds.ToArray(), entry.ZeroRpmSupported, entry.ZeroRpm, entry.PreAppAtFactory),
             Source = BaselineSource.Journal,
             Reason = "recovering a fan state left by an unclean stop (journal " + entry.Utc + ")",
         };

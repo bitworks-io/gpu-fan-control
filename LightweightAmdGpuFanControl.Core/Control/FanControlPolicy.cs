@@ -24,6 +24,17 @@ public sealed class FanControlPolicy
     public const int RampTempRange = 25;
     public const int ReadFailureLimit = 3;
 
+    /// <summary>Minimum time since the last duty change before the ramp may lower the duty. Increases are never delayed.</summary>
+    public const int MinDecreaseDwellMs = 10_000;
+
+    /// <summary>The linear ramp min->max over <see cref="RampTempRange"/> degrees above the target, clamped.</summary>
+    public static int Ramp(double t, AppSettings s)
+    {
+        int pct = s.MinFanPercent
+            + (int)Math.Round((t - s.TargetTempC) * (s.MaxFanPercent - s.MinFanPercent) / RampTempRange);
+        return MathCompat.Clamp(pct, s.MinFanPercent, s.MaxFanPercent);
+    }
+
     public FanDecision Decide(TempReading reading, AppSettings s, PolicyState state)
     {
         // 1. Failed temperature read.
@@ -59,8 +70,21 @@ public sealed class FanControlPolicy
         }
         else if (t >= s.TargetTempC)
         {
-            pct = s.MinFanPercent
-                + (int)Math.Round((t - s.TargetTempC) * (s.MaxFanPercent - s.MinFanPercent) / RampTempRange);
+            // Increases are immediate; a decrease needs the temperature to fall HysteresisC below the point
+            // that produced the held duty AND a minimum dwell since the last change (no dither on a 1 C wobble).
+            int up = Ramp(t, s);
+            if (!state.HasPrevious || up >= state.PreviousFanPercent)
+            {
+                pct = up;
+            }
+            else
+            {
+                int down = Ramp(t + s.HysteresisC, s);
+                pct = down < state.PreviousFanPercent
+                      && reading.MonotonicMs - state.LastChangeMs >= MinDecreaseDwellMs
+                    ? down
+                    : state.PreviousFanPercent;
+            }
         }
         else
         {
@@ -69,6 +93,9 @@ public sealed class FanControlPolicy
         }
 
         pct = MathCompat.Clamp(pct, s.MinFanPercent, s.MaxFanPercent);
+        if (!state.HasPrevious || pct != state.PreviousFanPercent)
+            state.LastChangeMs = reading.MonotonicMs;
+        state.HasPrevious = true;
         state.PreviousFanPercent = pct;
         return new FanDecision(FanAction.SetPercent, pct);
     }

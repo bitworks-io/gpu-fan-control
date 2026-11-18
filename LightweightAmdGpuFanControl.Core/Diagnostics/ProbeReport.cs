@@ -4,6 +4,18 @@ using System.Text.RegularExpressions;
 
 namespace LightweightAmdGpuFanControl.Diagnostics;
 
+/// <summary>Result of the read-only ADLX IsAtFactory query for one GPU.</summary>
+public enum TuningAtFactoryState { Yes, No, Unsupported, Error }
+
+/// <summary>One baseline.json entry as the probe reports it.</summary>
+public sealed class ProbeJournalEntry
+{
+    public string Name { get; set; } = "";
+    public int? UniqueId { get; set; }
+    public bool Dirty { get; set; }
+    public bool? PreAppAtFactory { get; set; }
+}
+
 public sealed class ProbeGpu
 {
     public int Index { get; set; }
@@ -16,6 +28,7 @@ public sealed class ProbeGpu
     public bool? ZeroRpmSupported { get; set; }
     public bool? ZeroRpmEnabled { get; set; }
     public int[]? CurrentSpeeds { get; set; }
+    public TuningAtFactoryState? TuningAtFactory { get; set; }
 }
 
 public sealed class ProbeAdlAdapter
@@ -44,6 +57,9 @@ public sealed class ProbeReport
     public string PreloadLine { get; set; } = "";
     public string AdlxInit { get; set; } = "";
     public string JournalLine { get; set; } = "";
+    public List<ProbeJournalEntry> JournalEntries { get; } = new();
+    /// <summary>Refused or degraded GPUs recorded in the last run's status.json (default path only), one line each.</summary>
+    public List<string> LastRunIssues { get; } = new();
     public List<ProbeGpu> Gpus { get; } = new();
     public List<ProbeAdlAdapter> AdlAdapters { get; } = new();
     public List<ProbeModule> Modules { get; } = new();
@@ -71,8 +87,22 @@ public sealed class ProbeReport
             if (g.ZeroRpmEnabled.HasValue) sb.Append($" zeroRpmEnabled={g.ZeroRpmEnabled.Value}");
             if (g.CurrentSpeeds != null)
                 sb.Append(" speeds=" + string.Join(",", g.CurrentSpeeds.Select(s => s.ToString(CultureInfo.InvariantCulture))));
+            if (g.TuningAtFactory.HasValue) sb.Append($" tuningAtFactory={g.TuningAtFactory.Value.ToString().ToLowerInvariant()}");
             sb.AppendLine();
         }
+        foreach (var e in JournalEntries)
+        {
+            string mode = e.PreAppAtFactory.HasValue ? (e.PreAppAtFactory.Value ? "true" : "false") : "unknown";
+            sb.AppendLine($"journal entry '{e.Name}' dirty={(e.Dirty ? "yes" : "no")} preAppAtFactory={mode}");
+            if (e.Dirty && !e.PreAppAtFactory.HasValue)
+                sb.AppendLine($"  note: '{e.Name}' pre-app mode unknown (no factory flag recorded); --restore-auto re-applies the saved fan points. If the fan does not return to automatic, reset GPU tuning in AMD Software.");
+            if (e.Dirty && e.PreAppAtFactory == true
+                && Gpus.Any(g => g.TuningAtFactory == TuningAtFactoryState.No && string.Equals(g.Name, e.Name, StringComparison.Ordinal)
+                    && (!e.UniqueId.HasValue || !g.UniqueId.HasValue || e.UniqueId.Value == g.UniqueId.Value)))
+                sb.AppendLine($"WARNING: release incomplete for '{e.Name}': it was at factory before the app ran but is not at factory now. Run --restore-auto, or reset GPU tuning in AMD Software.");
+        }
+        foreach (var issue in LastRunIssues)
+            sb.AppendLine("last run: " + issue);
         sb.AppendLine($"adl adapters: {AdlAdapters.Count}");
         foreach (var a in AdlAdapters)
             sb.AppendLine($"  adapter {a.Index} capsRc={a.CapsResult} supported={a.Supported} enabled={a.Enabled} version={a.Version} family={a.Family}");

@@ -69,6 +69,82 @@ public class ProbeReportTests
     }
 
     [Fact]
+    public void PrintsTuningAtFactory_AndPreAppMode()
+    {
+        var r = Report(true, true, true, true);
+        r.Gpus[0].TuningAtFactory = TuningAtFactoryState.Yes;
+        r.Gpus[1].TuningAtFactory = TuningAtFactoryState.No;
+        r.Gpus[2].TuningAtFactory = TuningAtFactoryState.Unsupported;
+        r.Gpus[3].TuningAtFactory = TuningAtFactoryState.Error;
+        r.JournalEntries.Add(new ProbeJournalEntry { Name = "GPU0", Dirty = true, PreAppAtFactory = true });
+        r.JournalEntries.Add(new ProbeJournalEntry { Name = "GPU1", Dirty = true, PreAppAtFactory = false });
+        r.JournalEntries.Add(new ProbeJournalEntry { Name = "GPU2", Dirty = true, PreAppAtFactory = null });
+        var lines = r.Format().Split('\n');
+        Assert.Contains("tuningAtFactory=yes", lines.Single(l => l.Contains("'GPU0'") && l.Contains("manualFanTuning")));
+        Assert.Contains("tuningAtFactory=no", lines.Single(l => l.Contains("'GPU1'") && l.Contains("manualFanTuning")));
+        Assert.Contains("tuningAtFactory=unsupported", lines.Single(l => l.Contains("'GPU2'") && l.Contains("manualFanTuning")));
+        Assert.Contains("tuningAtFactory=error", lines.Single(l => l.Contains("'GPU3'") && l.Contains("manualFanTuning")));
+        Assert.Contains("journal entry 'GPU0' dirty=yes preAppAtFactory=true", r.Format());
+        Assert.Contains("journal entry 'GPU1' dirty=yes preAppAtFactory=false", r.Format());
+        Assert.Contains("journal entry 'GPU2' dirty=yes preAppAtFactory=unknown", r.Format());
+        Assert.Contains("pre-app mode unknown", r.Format());
+    }
+
+    [Fact]
+    public void Format_NoTuningAtFactory_WhenNotRead()
+    {
+        var text = Report(false).Format();
+        Assert.DoesNotContain("tuningAtFactory", text);
+        Assert.DoesNotContain("release incomplete", text);
+    }
+
+    [Fact]
+    public void Format_DirtyFactoryEntryOnNonFactoryGpu_FlagsReleaseIncomplete()
+    {
+        var r = Report(true);
+        r.Gpus[0].TuningAtFactory = TuningAtFactoryState.No;
+        r.JournalEntries.Add(new ProbeJournalEntry { Name = "GPU0", Dirty = true, PreAppAtFactory = true });
+        Assert.Contains("WARNING: release incomplete for 'GPU0'", r.Format());
+
+        var ok = Report(true);
+        ok.Gpus[0].TuningAtFactory = TuningAtFactoryState.Yes;
+        ok.JournalEntries.Add(new ProbeJournalEntry { Name = "GPU0", Dirty = true, PreAppAtFactory = true });
+        Assert.DoesNotContain("release incomplete", ok.Format());
+    }
+
+    [Fact]
+    public void Format_LastRunGpuIssues_Printed()
+    {
+        var r = Report(true);
+        r.LastRunIssues.Add("GPU0 degraded: Result: ADLX_FAIL");
+        var text = r.Format();
+        Assert.Contains("last run: GPU0 degraded: Result: ADLX_FAIL", text);
+        Assert.DoesNotContain("last run:", Report(true).Format());
+    }
+
+    [Fact]
+    public void Format_UnknownMode_DoesNotClaimItWasWrittenBeforeRc3()
+    {
+        var r = Report(true);
+        r.JournalEntries.Add(new ProbeJournalEntry { Name = "GPU0", Dirty = true, PreAppAtFactory = null });
+        var text = r.Format();
+        Assert.Contains("pre-app mode unknown", text);
+        Assert.DoesNotContain("before rc.3", text);
+    }
+
+    [Fact]
+    public void Format_ReleaseIncomplete_MatchesGpuByNameAndUniqueId()
+    {
+        var r = new ProbeReport { AdlxInit = "ok" };
+        r.Gpus.Add(new ProbeGpu { Index = 0, Name = "Twin", UniqueId = 1, TuningAtFactory = TuningAtFactoryState.Yes });
+        r.Gpus.Add(new ProbeGpu { Index = 1, Name = "Twin", UniqueId = 2, TuningAtFactory = TuningAtFactoryState.No });
+        r.JournalEntries.Add(new ProbeJournalEntry { Name = "Twin", UniqueId = 1, Dirty = true, PreAppAtFactory = true });
+        Assert.DoesNotContain("release incomplete", r.Format());
+        r.JournalEntries.Add(new ProbeJournalEntry { Name = "Twin", UniqueId = 2, Dirty = true, PreAppAtFactory = true });
+        Assert.Contains("release incomplete for 'Twin'", r.Format());
+    }
+
+    [Fact]
     public void HasMixedModules_FalseWhenNone()
     {
         var r = Report(true);

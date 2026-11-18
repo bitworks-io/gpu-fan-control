@@ -12,6 +12,51 @@ Not validated on hardware yet.
 
 ### Fixed
 
+- **rc.3: the fan is released to the driver's automatic control on exit.** Until rc.2 (and in 1.0.x)
+  every exit path re-applied the fan curve captured at start as a manual curve, so the GPU stayed
+  under manual fan tuning after the app closed. On a card whose fan stops at idle under automatic
+  control, the fan stop did not come back. Before its first fan write the app now records whether
+  the GPU's tuning was at factory settings, and on exit (graceful exit, `--stop`, `--restore-auto`
+  after a kill) a GPU that was at factory settings is reset to factory and confirmed. A GPU that
+  had its own tuning, or whose earlier mode is unknown, gets its saved fan points back. Not
+  validated on hardware yet.
+  - **What the factory reset covers:** ADLX `ResetToFactory` resets auto, GPU, fan, VRAM and power
+    tuning together, not just the fan. The app uses it only when the whole GPU was at factory
+    settings before the app's first fan write. Non-fan tuning (clocks, VRAM, power) that you change
+    in AMD Software while the app runs is reset too.
+  - **When a release can factory-reset a GPU.** Only for a GPU that was at factory settings before the app's
+    first write to it (or whose recovered journal entry says so), and at each of these moments: the end of the
+    start-up self-test (on every channel the test ran on), Pause, a GPU disabled in settings, the sensor-failure
+    relinquish, a release after a fan-write error, `RestoreAll` after an unhandled exception, and exit,
+    `--stop` and `--restore-auto`. Each of those resets non-fan tuning (clocks, VRAM, power) changed since the
+    app's first write. After a crash, non-fan tuning you changed before the next start can be reset too, because
+    that start's release factory-resets the GPU the crashed run had written to.
+  - **Entries from earlier builds:** a `baseline.json` entry written by 1.0.x or rc.1/rc.2 has no
+    factory flag. It is restored by re-applying its fan points, the log and `--probe` say
+    "pre-app mode unknown", and nothing is factory-reset on a guess.
+  - **If the release is not confirmed:** the fan points are re-applied, the log says
+    `[fan] release incomplete`, `status.json` lists `release-incomplete: <GPU>` under
+    `releaseIssues`, and the journal entry stays dirty so `--restore-auto` can try again.
+  - **Known issue in 1.0.x and rc.1/rc.2:** after the app exits, a GPU can be left under manual fan
+    tuning with the curve it had at start. To undo it, reset GPU tuning for that card in AMD Software.
+- **rc.3: a GPU installed in place of a removed one could come up with fan control disabled** (the removed card's saved setting blocked it); fixed. If a card is already affected, enable it in Preferences: a saved off setting is kept as a choice.
+- **rc.3: a failed fan write now fails closed.** Before, a fan-write error during regulation was
+  logged and the same write was tried again every poll. Now an error at start or in the start-up
+  self-test refuses that GPU (nothing more is written to it), and an error during regulation stops
+  regulating that GPU, releases it right then (factory reset confirmed by IsAtFactory when it was at
+  factory before the app wrote, otherwise its saved fan points), and never retries; the normal release at
+  exit still runs afterwards. Other GPUs are
+  not affected. `status.json` lists the GPU under `gpuIssues` as `refused` or `degraded` with the
+  driver wrapper's message, and `--probe` prints the last run's issues as `last run:` lines. The ADLX
+  SDK in use has no distinct "reset needed" result (for example when one-click auto tuning is on), so
+  every fan-write error is treated the same way. Not validated on hardware yet.
+- **rc.3: `--reset-tuning-to-factory --gpu <uniqueId>`** returns one named GPU to factory settings on
+  demand, for a card left under manual tuning by 1.0.x or rc.1/rc.2. It resets **ALL of this GPU's
+  tuning (clock, VRAM, power and fan) to factory settings, not only the fan**. There is no all-GPUs form.
+  Exit `0` reset and confirmed by IsAtFactory, `3` already at factory (nothing written), `4` app
+  running, `1` GPU not found, no manual fan tuning, `IsAtFactory` unreadable before the reset, or not
+  confirmed. A repeated `--gpu` is a usage error (exit `2`). After a confirmed reset the GPU's
+  dirty legacy journal entry is cleared. Not validated on hardware yet.
 - **RDNA1 cards (RX 5700 / 5600 series) on machines whose System32 ADL/ADLX comes from a
   different AMD driver line than the one bound to the card.** ADLX opened but reported no GPU
   with manual fan tuning, and the ADL fallback found no fan interface. The app now loads the
@@ -28,7 +73,8 @@ Not validated on hardware yet.
 
 - `--probe [--no-preload]`: read-only capability report written to `log.txt` and
   `probe-<yyyyMMddTHHmmssZ>.txt`. No window, no fan writes. Exit `0` controllable GPU,
-  `3` none, `4` app running, `1` error.
+  `3` none, `4` app running, `1` error. rc.3 adds `tuningAtFactory=yes|no|unsupported|error` per
+  GPU and `preAppAtFactory=true|false|unknown` per journal entry.
 - `--automation [--status-file <fullpath>]`: no modal dialogs; writes `status.json`
   (`starting`, `engaged`, `unavailable`, `stopped`) with `pid` and `startedUtc`. Exit `3` when
   unavailable, `4` when another instance is running.
@@ -55,7 +101,7 @@ Not validated on hardware yet.
   `--restore-auto`) before removing files.
 - **The journal is only applied to a state the app wrote.** A dirty entry whose current fan state
   is not one flat duty in 20-85 % with Zero RPM off (stale), or already equals the journaled state,
-  is cleared instead of applied. A journal restore the driver rejects falls back to `Reset()`.
+  is cleared instead of applied. A journal restore the driver rejects leaves the entry dirty.
   Tray start never prunes a dirty entry. `--restore-auto` and `--automation` wait up to 15 s for
   the single-instance mutex.
 
@@ -65,6 +111,14 @@ Not validated on hardware yet.
   applies, the System32 copies are loaded by full path.
 - DriverStore copies must pass `WinVerifyTrust` and match the AMD signer pin (subject
   `O=Advanced Micro Devices`, issuer `CN=Sectigo Public Code Signing CA R36`) before they load.
+
+## [1.0.1] — 2026-11-08
+
+### Fixed
+
+- A GPU installed in place of a removed one could come up with fan control disabled
+  (the removed card's saved setting blocked it); fixed. If a card is already affected,
+  enable it in Preferences.
 
 ## [1.0.0] — 2026-07-13
 
@@ -157,5 +211,6 @@ fan-curve UI. Publisher: Bitworks (bitworks.io).
 - No network calls except user-initiated browser opens to bitworks.io. No telemetry,
   no secrets.
 
-[1.1.0]: https://github.com/bitworks-io/gpu-fan-control/compare/v1.0.0...main
+[1.1.0]: https://github.com/bitworks-io/gpu-fan-control/compare/v1.0.1...main
+[1.0.1]: https://github.com/bitworks-io/gpu-fan-control/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/bitworks-io/gpu-fan-control/releases/tag/v1.0.0

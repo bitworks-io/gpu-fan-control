@@ -28,6 +28,11 @@ From the Rem0o/ADLX fork: https://github.com/Rem0o/ADLX
 
 Included as part of the `external/ADLX` git submodule referenced above.
 
+Provenance: the submodule tracks the bitworks-io/ADLX fork of Rem0o/ADLX. The
+fork is Rem0o/ADLX at commit 240b1f3 plus exactly two added methods in
+`Samples/csharp/ADLXWrapper/GPUTuningService.cs`: `IsAtFactory(GPU)` and
+`ResetToFactory(GPU)`. Nothing else is changed.
+
 --------------------------------------------------------------------------------
 
 Redistribution of the ADLX components is subject to AMD's ADLX SDK License

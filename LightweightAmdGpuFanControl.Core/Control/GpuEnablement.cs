@@ -24,7 +24,9 @@ public static class GpuEnablement
             .Where(g => !string.IsNullOrEmpty(g.GpuId))
             .ToDictionary(g => g.GpuId, g => g.Enabled);
 
-        bool anyCurrentlyEnabled = saved.Values.Any(e => e);
+        // Only GPUs that are still detected count: a stale entry for a removed card must not block the new primary.
+        var detected = new HashSet<string>(detectedIds, StringComparer.Ordinal);
+        bool anyCurrentlyEnabled = saved.Any(kv => kv.Value && detected.Contains(kv.Key));
         string? primaryId = detectedIds.Count > 0 ? detectedIds[0] : null;
 
         var result = new List<GpuConfig>(detectedIds.Count);

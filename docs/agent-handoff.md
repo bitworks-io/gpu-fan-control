@@ -158,6 +158,14 @@ Latest installer for testing: CI run `28686185843` artifact `LightweightAmdGpuFa
   4. Tag `v1.1.0` on the validated code (or a docs-only commit after it); CI signs it and publishes the latest release. Promoting the final tag is the rollout switch for downstream installs.
   - `VERSION` stays `1.1.0` for rc tags. Never re-run a failed tag; cut the next rc. Sign in CI only.
 
+## 1.1.0-rc.3 status (release to the driver's automatic control)
+
+- **Implemented locally, not validated on hardware:** plan [docs/superpowers/plans/2026-11-08-rc3-release-to-driver-auto.md](superpowers/plans/2026-11-08-rc3-release-to-driver-auto.md), Tasks 1-6. `ReleasePlanner` (Core) picks `FactoryReset` (ADLX `ResetToFactory`, confirmed by `IsAtFactory`) or `ReapplyPoints`; `baseline.json` entries carry `preAppAtFactory` (null for 1.0.x/rc.1/rc.2 entries); `FanController.Release` is the single release path and `ManualFanTuning.Reset()` is never called (source guards in `FanReleaseSourceGuardTests`).
+- **Submodule:** `external/ADLX` points at the bitworks-io/ADLX fork (Rem0o/ADLX 240b1f3 plus `IsAtFactory`/`ResetToFactory` on `GPUTuningService`); see NOTICE. The fork must exist and contain the pinned commit before CI can check out the submodule.
+- **D6 (fail closed, Task 5c):** the pinned SDK has no `ADLX_RESET_NEEDED` and the wrapper reports errors only as text, so every fan-write error is treated alike: `GpuControlTracker` (Core) refuses a GPU on a start/self-test error and degrades it on a regulation error (one release through the planner path, no retries). Reported as `gpuIssues` in `status.json` and `last run:` lines in `--probe`; guarded by `FailClosedSourceGuardTests`.
+- **Fallback:** on a single-ADLX-GPU system, no ADLX channel (for example `FanController.Initialize` fails closed because the pre-app fan state cannot be read) means the existing fallback to the ADL backend, which has no release plan (it restores the driver default).
+- **Open:** H0 (does `IsAtFactory` read false under a manual fan curve) and H1-H3 are not run.
+
 ## Context Handoff Hygiene
 
 - Keep durable context short and decision-focused: current architecture, contracts, operational assumptions, verification commands, known risks, and unresolved blockers.

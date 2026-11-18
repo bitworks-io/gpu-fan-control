@@ -101,17 +101,22 @@ public sealed class AdlxFanControlBackend : IFanControlBackend
         _fanController.SetFanPercent(MathCompat.Clamp(percent, MinFanPercent, MaxFanPercent));
     }
 
-    public void RestoreAutomaticFanControl()
+    public void RestoreAutomaticFanControl() => TryRestoreAutomaticFanControl();
+
+    public bool TryRestoreAutomaticFanControl()
     {
         try
         {
-            _fanController.RestoreAutomatic();
+            return _fanController.TryRestoreAutomatic();
         }
         catch (Exception ex)
         {
             _logService.Log($"ADLX restore-to-automatic failed for {AdapterName}.", ex);
+            return false;
         }
     }
+
+    public LightweightAmdGpuFanControl.Recovery.ReleaseAction? LastReleaseAction => _fanController.LastReleasePlan?.Action;
 
     public void Dispose()
     {

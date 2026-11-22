@@ -251,8 +251,8 @@ confirmed reset it clears that GPU's old journal entry. Afterwards `--probe` sho
 - **Don't downgrade below 1.0.2 after installing any 1.1 build.** After a 1.1 build, installing
   1.0.0 or 1.0.1 over it leaves an uninstaller that can hang, because the older exe opens its
   tray instead of stopping. Fix: install 1.0.2, or a 1.1 build, over it, then uninstall.
-- **Upgrading while the app is running.** The installer force-closes a running app, whatever its
-  version, which skips its fan restore. Stop the app before upgrading.
+- **Upgrading while the app is running.** Installers up to 1.1.0 force-close a running app, whatever
+  its version, which skips its fan restore. Stop the app before upgrading.
   - Running **1.0.x**: the new version starts from the fan curve the old one left behind, not from
     the factory state. To get the factory fan state back, afterwards (with the app closed) run
     `LightweightAmdGpuFanControl.exe --reset-tuning-to-factory --gpu <uniqueId>`, taking the id
@@ -267,8 +267,9 @@ confirmed reset it clears that GPU's old journal entry. Afterwards `--probe` sho
       points are re-applied rather than a factory reset.
     - A GPU on the ADL fallback has no journal; on exit the app hands it back to the driver's
       automatic fan mode.
-  - 1.1.1 (in development) asks a running 1.0.2 or later build to stop gracefully first;
-    1.0.0 and 1.0.1 are still force-closed.
+  - From 1.1.1 the installer first asks a running 1.0.2 or later build to stop gracefully (it
+    releases its fans); 1.0.0 and 1.0.1 are still force-closed, and a build that doesn't stop within
+    its timeout is force-closed as before.
 
 ## Reporting Issues
 

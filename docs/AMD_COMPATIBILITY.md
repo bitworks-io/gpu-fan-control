@@ -2,6 +2,17 @@
 
 The utility selects AMD fan-control support by API capability, not by marketing name.
 
+## Validation Status
+
+Status as of 1.1.0-rc.3 (prerelease, 2026-11-09). Only the checks below were run; nothing is claimed beyond them.
+
+| Generation | Test card | Status |
+| --- | --- | --- |
+| RDNA1 | RX 5700 XT | Validated: under load the fan was regulated along its curve (increases followed, no abort); on exit the GPU returned to the driver's automatic control with the factory reset confirmed and the idle fan stop back; after a hard kill `--restore-auto` restored automatic control from the journal; the signed rc.3 installer installed cleanly over 1.0.1. |
+| RDNA3 | RX 7800 XT | Release to automatic control and the restore path verified. |
+| RDNA3 | RX 7900 XT | Release to automatic control on exit verified, factory reset confirmed. Fan regulation on RDNA3 is still being validated; one check on this card is being repeated. |
+| RDNA2 | RX 6400 | Reports no manual fan tuning support through ADLX, so the app does not control its fan. Nothing to validate on this card; this is not a statement about other RDNA2 cards. |
+
 ## Backend Order
 
 Before either backend starts, the app decides once per process which `atiadlxx.dll` / `amdadlx64.dll` to use (log lines start `adl-preload:`):

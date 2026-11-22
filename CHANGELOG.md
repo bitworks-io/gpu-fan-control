@@ -8,7 +8,9 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 RDNA1 (RX 5700 / 5600 series) support, read-only diagnostics, an unattended
 mode, and a journal that restores the pre-app fan state after an unclean stop.
-Not validated on hardware yet.
+Status: 1.1.0-rc.3 (a signed prerelease, published 2026-11-09; `latest` is still v1.0.1) is
+validated on an RX 5700 XT (RDNA1) test system; on RDNA3 test cards the release to automatic
+control is verified, while fan regulation on RDNA3 is still being validated.
 
 ### Fixed
 
@@ -18,8 +20,12 @@ Not validated on hardware yet.
   control, the fan stop did not come back. Before its first fan write the app now records whether
   the GPU's tuning was at factory settings, and on exit (graceful exit, `--stop`, `--restore-auto`
   after a kill) a GPU that was at factory settings is reset to factory and confirmed. A GPU that
-  had its own tuning, or whose earlier mode is unknown, gets its saved fan points back. Not
-  validated on hardware yet.
+  had its own tuning, or whose earlier mode is unknown, gets its saved fan points back.
+  Verified on an RX 5700 XT test system (RDNA1: on exit the GPU went back to the driver's
+  automatic control, the factory reset was confirmed and the idle fan stop came back; after a
+  hard kill, `--restore-auto` restored automatic control from the journal) and on RDNA3 test
+  cards (RX 7800 XT: release and restore path; RX 7900 XT: release on exit with the factory
+  reset confirmed).
   - **What the factory reset covers:** ADLX `ResetToFactory` resets auto, GPU, fan, VRAM and power
     tuning together, not just the fan. The app uses it only when the whole GPU was at factory
     settings before the app's first fan write. Non-fan tuning (clocks, VRAM, power) that you change
@@ -111,6 +117,34 @@ Not validated on hardware yet.
   applies, the System32 copies are loaded by full path.
 - DriverStore copies must pass `WinVerifyTrust` and match the AMD signer pin (subject
   `O=Advanced Micro Devices`, issuer `CN=Sectigo Public Code Signing CA R36`) before they load.
+
+### Known issues
+
+- **Don't downgrade below 1.0.2 after installing any 1.1 build.** After a 1.1 build, installing
+  1.0.0 or 1.0.1 over it leaves an uninstaller that can hang, because the older exe opens its
+  tray instead of stopping. Fix: install 1.0.2, or a 1.1 build, over it, then uninstall.
+- **Upgrading while 1.0.x is running.** The installer force-closes the running app, which skips
+  its fan restore. The new version then starts from the fan curve the old one left behind, not
+  from the factory state. To get the factory fan state back, stop the app before upgrading, or
+  afterwards (with the app closed) run
+  `LightweightAmdGpuFanControl.exe --reset-tuning-to-factory --gpu <uniqueId>`, taking the id
+  from `--probe`. That resets **ALL of this GPU's tuning (clock, VRAM, power and fan) to
+  factory settings, not only the fan**. A fix (a graceful stop before the forced close) is
+  planned for 1.1.1.
+
+## [1.0.2] — 2026-11-18
+
+### Fixed
+
+- An uninstall after installing a 1.x (1.1 or later) build and then this 1.0.x version
+  no longer hangs on a "fan control unavailable" dialog. `--stop` now stops a running copy
+  gracefully (its fan settings are restored). Any other `--` option exits at once
+  (code 3) without starting the tray. A launch with no arguments is unchanged.
+
+### Notes
+
+- Released 2026-11-18, signed, on the 1.0 line. It is not `latest`.
+- Don't downgrade below 1.0.2 after installing a 1.1 build. 1.0.0 and 1.0.1 remain affected.
 
 ## [1.0.1] — 2026-11-08
 

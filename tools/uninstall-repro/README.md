@@ -12,6 +12,7 @@ happens. It changes no product code.
 | S4 | v1.0.0, v1.0.1 | asserted (control) |
 | S5b | test build, v1.0.2 (downgrade to the hotfix) | asserted |
 | S6 | test build, v1.0.2, with the 1.0.2 tray running | asserted |
+| S7 | test build, then the same build installed over its running tray (an upgrade; no uninstall) | asserted |
 | S2 | test build, test build | reported only |
 | S3 | v1.0.0, v1.0.1, test build, test build | reported only |
 | S5 | test build, v1.0.1 | reported only |
@@ -22,8 +23,21 @@ Asserted scenarios fail the job on any anomaly; reported ones always exit 0 and 
 `Unsupported arguments for 1.0.x: --restore-auto; exit 3` line, exit 0 within 120 s, the app folder gone,
 and no fan-control process left. S6 also requires the tray's owner and session to match the uninstaller's.
 
+**S7 (upgrade over a running 1.1 tray).** The scenario installs the test build, starts its tray as the scenario
+user, then silently over-installs the same build with `/LOG`. It asserts that the setup log has
+`PrepareToInstall: graceful stop gate=yes version=<the installed exe's file version>`, then
+`--stop exit 1`, then `taskkill exit` (in that order), that setup exits 0 within 120 s, and that exactly one app
+process of the scenario's user (the relaunch) runs from the installed path; teardown stops it.
+Why `--stop` exits 1 on a runner with no AMD GPU: `FanControlService.Start` shows a modal "AMD fan control
+unavailable" `MessageBox` when no backend initialises (`FanControlService.cs:105`) and is called from the
+`SystrayApplicationContext` constructor (`SystrayApplicationContext.cs:72`), so the constructor never reaches
+`StopSignal.Listen` (`SystrayApplicationContext.cs:89`). The tray holds the single-instance mutex but has no
+stop event, so `--stop` logs "a running instance has no stop listener" and exits 1 (`StopCommand.cs:25`).
+The taskkill fallback then ends the tray (exit 0) and `[Run]` relaunches it. The graceful (exit 0) path
+needs a real GPU and is not exercised here.
+
 **Order matters.** S5 hangs on purpose and leaves its own user's app process running until teardown, which
-would change what the 1.1 uninstaller's `taskkill /IM` reports in a later scenario. So S5b and S6 run right
+would change what the 1.1 uninstaller's `taskkill /IM` reports in a later scenario. So S5b, S6 and S7 run right
 after the controls, count only the app process of their own user (by its installed exe path), and refuse to
 judge (a precondition failure) if another scenario's app process is still running.
 

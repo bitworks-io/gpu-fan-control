@@ -193,6 +193,50 @@ Check 'own procs: none running gives zero' (@(Select-ScenarioFanProcesses -Proce
 $frn = @(Select-ForeignFanProcesses -Processes $procs -AppExe $mine)
 Check 'foreign procs: another user''s app process and an unreadable path are foreign; own and non-app are not' ((($frn | ForEach-Object { $_.ProcessId }) -join ',') -eq '11,33') "got $(($frn | ForEach-Object { $_.ProcessId }) -join ',')"
 
+# ---------------------------------------------------------------------------------------------
+# S7: upgrade over a running 1.1 tray. Get-PrepareToInstallLines parses the setup log; Test-ExpectedUpgradePath judges it.
+# ---------------------------------------------------------------------------------------------
+$pti = "2026-11-22 10:00:00.100   Starting the installation process.`n" +
+    "2026-11-22 10:00:01.000   Log: PrepareToInstall: graceful stop gate=yes version=1.1.1.0`n" +
+    "2026-11-22 10:00:21.000   Log: PrepareToInstall: --stop exit 1`n" +
+    "2026-11-22 10:00:21.500   Log: PrepareToInstall: taskkill exit 0`n" +
+    "2026-11-22 10:00:23.000   Other line`n"
+$pl = @(Get-PrepareToInstallLines -Text $pti)
+Check 'pti parse: three lines in order' (($pl.Count -eq 3) -and ($pl[0].kind -eq 'gate') -and ($pl[1].kind -eq 'stop') -and ($pl[2].kind -eq 'taskkill'))
+Check 'pti parse: gate fields and exit codes' (($pl[0].gate -eq 'yes') -and ($pl[0].version -eq '1.1.1.0') -and ($pl[1].exitCode -eq 1) -and ($pl[2].exitCode -eq 0))
+Check 'pti parse: empty text gives none' (@(Get-PrepareToInstallLines -Text '').Count -eq 0)
+
+function Invoke-Upgrade($Lines, [int]$Code = 0, [double]$Wall = 30, [int]$Procs = 1, [string]$Ver = '1.1.1.0', [int]$Stop = 1) {
+    @(Test-ExpectedUpgradePath -Lines $Lines -ExpectedVersion $Ver -ExpectedStopExit $Stop -InstallExitCode $Code -WallSeconds $Wall -FanProcsAfter $Procs)
+}
+$f = Invoke-Upgrade $pl
+Check 'upgrade: present and in order passes' ($f.Count -eq 0) ($f -join '; ')
+$swapped = @($pl[0], $pl[2], $pl[1])
+$f = Invoke-Upgrade $swapped
+Check 'upgrade: out of order (taskkill before --stop) fails' ($f.Count -gt 0)
+$f = Invoke-Upgrade @($pl[0], $pl[2])
+Check 'upgrade: --stop line missing fails' ($f.Count -gt 0)
+$f = Invoke-Upgrade @($pl[0], $pl[1])
+Check 'upgrade: taskkill line missing fails' ($f.Count -gt 0)
+$f = Invoke-Upgrade @()
+Check 'upgrade: all lines missing fails' ($f.Count -gt 0)
+$no = @(Get-PrepareToInstallLines -Text "Log: PrepareToInstall: graceful stop gate=no version=1.0.1.0`nLog: PrepareToInstall: taskkill exit 0`n")
+$f = Invoke-Upgrade $no
+Check 'upgrade: gate=no fails' ($f.Count -gt 0)
+$f = Invoke-Upgrade $pl -Ver '1.1.0.0'
+Check 'upgrade: wrong version fails' ($f.Count -gt 0)
+$f = Invoke-Upgrade $pl -Stop 0
+Check 'upgrade: --stop exit differs from the pinned value fails' ($f.Count -gt 0)
+$f = Invoke-Upgrade $pl -Code 1
+Check 'upgrade: installer exit 1 fails' ($f.Count -gt 0)
+$f = Invoke-Upgrade $pl -Wall 121
+Check 'upgrade: wall 121 s fails' ($f.Count -gt 0)
+$f = Invoke-Upgrade $pl -Procs 0
+Check 'upgrade: no relaunched process fails' ($f.Count -gt 0)
+$f = Invoke-Upgrade $pl -Procs 2
+Check 'upgrade: two app processes fails' ($f.Count -gt 0)
+Check 'table: S7 asserted, tray after step 1, test,test, pinned --stop exit 1' (($ScenarioTable.S7.Assert -eq $true) -and ($ScenarioTable.S7.TrayAfterStep -eq 1) -and (($ScenarioTable.S7.Steps -join ',') -eq 'test,test') -and ($ScenarioTable.S7.ExpectedStopExit -eq 1))
+
 if ($script:fails) { Write-Host "$script:fails check(s) failed"; exit 1 }
 Write-Host 'all harness self-tests passed'
 exit 0

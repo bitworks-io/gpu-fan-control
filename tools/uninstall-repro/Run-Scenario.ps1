@@ -14,7 +14,7 @@ Modes:
   Cleanup   Kill any process owned by a repro user, unregister the repro tasks and remove the users.
 
 Everything here must run under Windows PowerShell 5.1 (the wrapper is launched with powershell.exe).
-Scenarios S1, S4, S5b and S6 are asserted; S2, S3 and S5 are reported only (and any -GrantBatchLogon run is reported only).
+Scenarios S1, S4, S5b, S6 and S7 are asserted; S2, S3 and S5 are reported only (and any -GrantBatchLogon run is reported only).
 S5b and S6 (1.1 -> 1.0.2 downgrade, then uninstall; S6 with the 1.0.2 tray running) additionally hold the app's
 log.txt open across the uninstall to capture the --stop / --restore-auto log lines, so the data folder may be
 left behind in those two scenarios (a harness artifact, not an uninstaller bug).
@@ -23,7 +23,7 @@ left behind in those two scenarios (a harness artifact, not an uninstaller bug).
 param(
     [ValidateSet('Scenario', 'Wrapper', 'Cleanup')]
     [string]$Mode = 'Scenario',
-    [ValidateSet('S1', 'S2', 'S3', 'S4', 'S5', 'S5b', 'S6')]
+    [ValidateSet('S1', 'S2', 'S3', 'S4', 'S5', 'S5b', 'S6', 'S7')]
     [string]$Scenario,
     [string]$TestInstaller,
     [string]$V100Installer,
@@ -53,6 +53,13 @@ $ScenarioTable = @{
     S5 = @{ Steps = @('test', 'v101'); Assert = $false; Note = 'cleanup over-install: test build then v1.0.1' }
     S5b = @{ Steps = @('test', 'v102'); Assert = $true; Note = 'downgrade to the 1.0.2 hotfix, then uninstall' }
     S6 = @{ Steps = @('test', 'v102'); Assert = $true; StartTray = $true; Note = '1.0.2 tray running during the uninstall' }
+    # S7: upgrade over a running 1.1 tray (no uninstall). The tray is started after install 1 and left running into install 2.
+    # Expected --stop exit is 1 on a GPU-less runner: Program.cs builds SystrayApplicationContext, whose constructor calls
+    # FanControlService.Start (SystrayApplicationContext.cs:72); with no backend that shows a MODAL MessageBox
+    # (FanControlService.cs:105) and does not return, so StopSignal.Listen (SystrayApplicationContext.cs:89) is never reached.
+    # --stop then finds the mutex held but no stop event ("a running instance has no stop listener", StopCommand.cs:25) and
+    # exits 1; the installer's taskkill fallback ends the tray (exit 0), [Run] relaunches it (again into the dialog).
+    S7 = @{ Steps = @('test', 'test'); Assert = $true; TrayAfterStep = 1; ExpectedStopExit = 1; Note = 'upgrade over a running 1.1 tray' }
 }
 
 # ---------------------------------------------------------------------------------------------
@@ -752,6 +759,56 @@ function Get-StopOutcome {
     }
 }
 
+function Get-PrepareToInstallLines {
+    <# The installer's own "PrepareToInstall: ..." log lines, in order, from a setup /LOG text. Each item:
+       kind = gate | stop | taskkill, plus gate/version (gate lines) or exitCode (stop, taskkill). Tested by Test-Harness.ps1. #>
+    param([string]$Text)
+    $list = New-Object System.Collections.Generic.List[object]
+    if ($Text) {
+        foreach ($line in ($Text -split "\r?\n")) {
+            if ($line -match 'PrepareToInstall: graceful stop gate=(yes|no) version=(\S+)\s*$') {
+                $list.Add([pscustomobject]@{ kind = 'gate'; gate = $Matches[1]; version = $Matches[2]; exitCode = $null })
+            } elseif ($line -match 'PrepareToInstall: --stop exit (-?\d+)\s*$') {
+                $list.Add([pscustomobject]@{ kind = 'stop'; gate = $null; version = $null; exitCode = [int64]$Matches[1] })
+            } elseif ($line -match 'PrepareToInstall: taskkill exit (-?\d+)\s*$') {
+                $list.Add([pscustomobject]@{ kind = 'taskkill'; gate = $null; version = $null; exitCode = [int64]$Matches[1] })
+            }
+        }
+    }
+    $list.ToArray()
+}
+
+function Test-ExpectedUpgradePath {
+    <# Failure strings (empty = pass) for S7. The setup log must show gate=yes at the installed version, then the --stop
+       exit (the pinned value) BEFORE the taskkill exit; setup must exit 0 within 120 s; exactly one app process of this
+       scenario's user must run afterwards (the relaunch). #>
+    param(
+        $Lines, [string]$ExpectedVersion, [int]$ExpectedStopExit,
+        [int]$InstallExitCode, [double]$WallSeconds, [int]$FanProcsAfter
+    )
+    $f = New-Object System.Collections.Generic.List[string]
+    if ($InstallExitCode -ne 0) { $f.Add("install exit code $InstallExitCode, expected 0") }
+    if ($WallSeconds -gt 120) { $f.Add("install took $WallSeconds s, limit 120 s") }
+    $l = @($Lines)
+    $gateIdx = -1; $stopIdx = -1; $killIdx = -1
+    for ($i = 0; $i -lt $l.Count; $i++) {
+        if ($l[$i].kind -eq 'gate' -and $gateIdx -lt 0) { $gateIdx = $i }
+        elseif ($l[$i].kind -eq 'stop' -and $stopIdx -lt 0) { $stopIdx = $i }
+        elseif ($l[$i].kind -eq 'taskkill' -and $killIdx -lt 0) { $killIdx = $i }
+    }
+    if ($gateIdx -lt 0) { $f.Add("setup log lacks 'PrepareToInstall: graceful stop gate=' line") }
+    elseif ($l[$gateIdx].gate -ne 'yes' -or $l[$gateIdx].version -ne $ExpectedVersion) {
+        $f.Add("gate line is gate=$($l[$gateIdx].gate) version=$($l[$gateIdx].version), expected gate=yes version=$ExpectedVersion")
+    }
+    if ($stopIdx -lt 0) { $f.Add("setup log lacks 'PrepareToInstall: --stop exit' line") }
+    elseif ([int64]$l[$stopIdx].exitCode -ne $ExpectedStopExit) { $f.Add("--stop exit $($l[$stopIdx].exitCode), expected $ExpectedStopExit") }
+    if ($killIdx -lt 0) { $f.Add("setup log lacks 'PrepareToInstall: taskkill exit' line") }
+    if ($stopIdx -ge 0 -and $killIdx -ge 0 -and $stopIdx -gt $killIdx) { $f.Add('--stop exit was logged AFTER taskkill exit; the graceful stop must come first') }
+    if ($gateIdx -ge 0 -and $stopIdx -ge 0 -and $gateIdx -gt $stopIdx) { $f.Add('gate line was logged after --stop exit') }
+    if ($FanProcsAfter -ne 1) { $f.Add("$FanProcsAfter app process(es) of this scenario's user running after the upgrade, expected exactly 1 (the relaunch)") }
+    $f.ToArray()
+}
+
 function Select-ScenarioFanProcesses {
     <# The app processes of THIS scenario: those running this scenario user's installed exe (case-insensitive path).
        A reported scenario (S5) leaves another repro user's hung app process running until teardown, so S5b/S6 must
@@ -879,12 +936,58 @@ function Invoke-Scenario {
                 logExists = (Test-Path -LiteralPath $log); post = $post; newTemp = @(); windowTexts = @()
             })
         if ($h.TaskName) { Unregister-ScheduledTask -TaskName $h.TaskName -Confirm:$false -ErrorAction SilentlyContinue }
+        if ($def.TrayAfterStep -eq $n -and $w.Outcome -eq 'success') {
+            # S7: start the freshly installed 1.1 tray as the scenario user; it stays running into the next install.
+            $appExeS7 = Join-Path $localAppData "Programs\Bitworks\$AppFolderName\LightweightAmdGpuFanControl.exe"
+            $th = Invoke-AsUser -User $user -Tag ('step{0}-tray' -f $n) -Exe $appExeS7 -ArgString '' -StepDir $outDir -Detach
+            $tw = Watch-Step -Handle $th -UserName $user.Name -TimeoutSec 120
+            if ($tw.Kind -ne 'completed') { $failures.Add("tray did not start (launch $($tw.Outcome) $($tw.Detail))"); $stop = $true; $skipReason = 'upgrade skipped: tray did not start' }
+            else {
+                $tsw = [Diagnostics.Stopwatch]::StartNew()
+                while ($tsw.Elapsed.TotalSeconds -lt 20 -and @(Select-ScenarioFanProcesses -Processes @(Get-CimInstance Win32_Process -Filter "Name='LightweightAmdGpuFanControl.exe'" -ErrorAction SilentlyContinue) -AppExe $appExeS7).Count -eq 0) { Start-Sleep -Milliseconds 500 }
+                if (@(Select-ScenarioFanProcesses -Processes @(Get-CimInstance Win32_Process -Filter "Name='LightweightAmdGpuFanControl.exe'" -ErrorAction SilentlyContinue) -AppExe $appExeS7).Count -eq 0) {
+                    $failures.Add('tray did not start'); $stop = $true; $skipReason = 'upgrade skipped: tray did not start'
+                }
+            }
+        }
         if ($w.Outcome -ne 'success') {
             # Any non-success install is recorded and ends the scenario: the uninstall would not test the intended history.
             $failures.Add("install '$key' (step $n) outcome=$($w.Outcome)$(if ($w.Detail) { ' (' + $w.Detail + ')' })")
             $skipReason = "uninstall skipped: install '$key' (step $n) ended with outcome '$($w.Outcome)', not success"
             $stop = $true
         }
+    }
+
+    # S7 judges the second install's setup log; there is no uninstall.
+    if ($Scenario -eq 'S7' -and -not $stop) {
+        $appExeS7 = Join-Path $localAppData "Programs\Bitworks\$AppFolderName\LightweightAmdGpuFanControl.exe"
+        $last = $steps[$steps.Count - 1]
+        $upLog = Join-Path $outDir ('step{0}-install-test.inno.log' -f $n)
+        $upText = $(if (Test-Path -LiteralPath $upLog) { Get-Content -Raw -LiteralPath $upLog -ErrorAction SilentlyContinue } else { '' })
+        $fv = (Get-Item -LiteralPath $appExeS7).VersionInfo
+        $wantVer = '{0}.{1}.{2}.{3}' -f $fv.FileMajorPart, $fv.FileMinorPart, $fv.FileBuildPart, $fv.FilePrivatePart
+        # The relaunch is [Run] with nowait: give it a few seconds to appear.
+        $rsw = [Diagnostics.Stopwatch]::StartNew()
+        $mineProcs = @()
+        do {
+            $mineProcs = @(Select-ScenarioFanProcesses -Processes @(Get-CimInstance Win32_Process -Filter "Name='LightweightAmdGpuFanControl.exe'" -ErrorAction SilentlyContinue) -AppExe $appExeS7)
+            if ($mineProcs.Count -ge 1) {
+                Start-Sleep -Seconds 2
+                $mineProcs = @(Select-ScenarioFanProcesses -Processes @(Get-CimInstance Win32_Process -Filter "Name='LightweightAmdGpuFanControl.exe'" -ErrorAction SilentlyContinue) -AppExe $appExeS7)
+                break
+            }
+            Start-Sleep -Milliseconds 500
+        } while ($rsw.Elapsed.TotalSeconds -lt 20)
+        $ptiLines = @(Get-PrepareToInstallLines -Text $upText)
+        $wallS7 = $(if ($null -ne $last.wallSeconds) { [double]$last.wallSeconds } else { 0 })
+        $codeS7 = $(if ($null -ne $last.exitCode) { [int]$last.exitCode } else { -1 })
+        foreach ($x in @(Test-ExpectedUpgradePath -Lines $ptiLines -ExpectedVersion $wantVer -ExpectedStopExit $def.ExpectedStopExit `
+                    -InstallExitCode $codeS7 -WallSeconds $wallS7 -FanProcsAfter $mineProcs.Count)) { $failures.Add($x) }
+        $last | Add-Member -NotePropertyName upgrade -NotePropertyValue ([pscustomobject]@{
+                prepareToInstall = $ptiLines; wantVersion = $wantVer; fanProcsAfter = $mineProcs.Count })
+        # Teardown: stop the relaunched tray (Cleanup mode would also kill any process of a repro user).
+        foreach ($p in $mineProcs) { Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue }
+        $stop = $true
     }
 
     # The uninstall, exactly as the bench ran it.
@@ -1080,6 +1183,11 @@ function Write-ScenarioSummary {
         if ($s.detail) { $md.Add("- $($s.kind) outcome $($s.outcome): $(ConvertTo-MdCell $s.detail)") }
         if ($s.PSObject.Properties['dataDirDeleteLines'] -and @($s.dataDirDeleteLines).Count -gt 0) {
             $md.Add("- data folder delete lines in the Inno log: ``$(ConvertTo-MdCell (@($s.dataDirDeleteLines) -join ' / '))``")
+        }
+        if ($s.PSObject.Properties['upgrade'] -and $s.upgrade) {
+            $u = $s.upgrade
+            $pl = (@($u.prepareToInstall) | ForEach-Object { if ($_.kind -eq 'gate') { "gate=$($_.gate) version=$($_.version)" } else { "$($_.kind) exit $($_.exitCode)" } }) -join '; '
+            $md.Add("- PrepareToInstall: ``$(ConvertTo-MdCell $pl)``; expected version $($u.wantVersion); app processes after upgrade: $($u.fanProcsAfter)")
         }
         if ($s.PSObject.Properties['v102'] -and $s.v102) {
             $v = $s.v102

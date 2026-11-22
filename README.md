@@ -254,8 +254,8 @@ confirmed reset it clears that GPU's old journal entry. Afterwards `--probe` sho
   - Running a **1.1 build on an ADLX GPU**: the next start reuses the pre-app fan state saved in
     its journal (`baseline.json`), as long as the fan still looks like one the app set (a flat
     duty). It does not reuse it after an ADL fallback (no journal), after a close in the middle of
-    a fan write (the fan may then not look app-set), or for a journal entry from rc.1/rc.2 or
-    1.0.x (no recorded factory state). In those cases the saved fan points are re-applied rather
+    a fan write (the fan may then not look app-set), or for a journal entry written by rc.1 or
+    rc.2 (no recorded factory state). In those cases the saved fan points are re-applied rather
     than a factory reset.
   - 1.1.1 (in development) asks a running 1.0.2 or later build to stop gracefully first;
     1.0.0 and 1.0.1 are still force-closed.

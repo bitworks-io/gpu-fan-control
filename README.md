@@ -244,14 +244,21 @@ confirmed reset it clears that GPU's old journal entry. Afterwards `--probe` sho
 - **Don't downgrade below 1.0.2 after installing any 1.1 build.** After a 1.1 build, installing
   1.0.0 or 1.0.1 over it leaves an uninstaller that can hang, because the older exe opens its
   tray instead of stopping. Fix: install 1.0.2, or a 1.1 build, over it, then uninstall.
-- **Upgrading while 1.0.x is running.** The installer force-closes the running app, which skips
-  its fan restore, so the new version starts from the fan curve the old one left behind, not from
-  the factory state. To get the factory fan state back, stop the app before upgrading, or
-  afterwards run `LightweightAmdGpuFanControl.exe --reset-tuning-to-factory --gpu <uniqueId>`
-  with the app closed (read the id from `--probe`). It resets **ALL of this GPU's tuning (clock,
-  VRAM, power and fan) to factory settings, not only the fan**; see
-  [Command-line options](#command-line-options). A fix (a graceful stop before the forced
-  close) is planned for 1.1.1.
+- **Upgrading while the app is running.** The installer force-closes a running app, whatever its
+  version, which skips its fan restore. Stop the app before upgrading.
+  - Running **1.0.x**: the new version starts from the fan curve the old one left behind, not from
+    the factory state. To get the factory fan state back, afterwards (with the app closed) run
+    `LightweightAmdGpuFanControl.exe --reset-tuning-to-factory --gpu <uniqueId>`, taking the id
+    from `--probe` (see [Command-line options](#command-line-options)). That resets **ALL of this GPU's tuning (clock, VRAM, power and fan) to
+    factory settings, not only the fan**.
+  - Running a **1.1 build on an ADLX GPU**: the next start reuses the pre-app fan state saved in
+    its journal (`baseline.json`), as long as the fan still looks like one the app set (a flat
+    duty). It does not reuse it after an ADL fallback (no journal), after a close in the middle of
+    a fan write (the fan may then not look app-set), or for a journal entry from rc.1/rc.2 or
+    1.0.x (no recorded factory state). In those cases the saved fan points are re-applied rather
+    than a factory reset.
+  - 1.1.1 (in development) asks a running 1.0.2 or later build to stop gracefully first;
+    1.0.0 and 1.0.1 are still force-closed.
 
 ## Reporting Issues
 

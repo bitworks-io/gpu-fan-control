@@ -24,7 +24,7 @@ control is verified, while fan regulation on RDNA3 is still being validated.
   Verified on an RX 5700 XT test system (RDNA1: on exit the GPU went back to the driver's
   automatic control, the factory reset was confirmed and the idle fan stop came back; after a
   hard kill, `--restore-auto` restored automatic control from the journal) and on RDNA3 test
-  cards (RX 7800 XT: release and restore path; RX 7900 XT: release on exit with the factory
+  cards (RX 7800 XT: release to automatic control; RX 7900 XT: release on exit with the factory
   reset confirmed).
   - **What the factory reset covers:** ADLX `ResetToFactory` resets auto, GPU, fan, VRAM and power
     tuning together, not just the fan. The app uses it only when the whole GPU was at factory
@@ -123,14 +123,21 @@ control is verified, while fan regulation on RDNA3 is still being validated.
 - **Don't downgrade below 1.0.2 after installing any 1.1 build.** After a 1.1 build, installing
   1.0.0 or 1.0.1 over it leaves an uninstaller that can hang, because the older exe opens its
   tray instead of stopping. Fix: install 1.0.2, or a 1.1 build, over it, then uninstall.
-- **Upgrading while 1.0.x is running.** The installer force-closes the running app, which skips
-  its fan restore. The new version then starts from the fan curve the old one left behind, not
-  from the factory state. To get the factory fan state back, stop the app before upgrading, or
-  afterwards (with the app closed) run
-  `LightweightAmdGpuFanControl.exe --reset-tuning-to-factory --gpu <uniqueId>`, taking the id
-  from `--probe`. That resets **ALL of this GPU's tuning (clock, VRAM, power and fan) to
-  factory settings, not only the fan**. A fix (a graceful stop before the forced close) is
-  planned for 1.1.1.
+- **Upgrading while the app is running.** The installer force-closes a running app, whatever its
+  version, which skips its fan restore. Stop the app before upgrading.
+  - Running **1.0.x**: the new version starts from the fan curve the old one left behind, not from
+    the factory state. To get the factory fan state back, afterwards (with the app closed) run
+    `LightweightAmdGpuFanControl.exe --reset-tuning-to-factory --gpu <uniqueId>`, taking the id
+    from `--probe`. That resets **ALL of this GPU's tuning (clock, VRAM, power and fan) to
+    factory settings, not only the fan**.
+  - Running a **1.1 build on an ADLX GPU**: the next start reuses the pre-app fan state saved in
+    its journal (`baseline.json`), as long as the fan still looks like one the app set (a flat
+    duty). It does not reuse it after an ADL fallback (no journal), after a close in the middle of
+    a fan write (the fan may then not look app-set), or for a journal entry from rc.1/rc.2 or
+    1.0.x (no recorded factory state). In those cases the saved fan points are re-applied rather
+    than a factory reset.
+  - 1.1.1 (in development) asks a running 1.0.2 or later build to stop gracefully first;
+    1.0.0 and 1.0.1 are still force-closed.
 
 ## [1.0.2] — 2026-11-18
 
@@ -246,5 +253,6 @@ fan-curve UI. Publisher: Bitworks (bitworks.io).
   no secrets.
 
 [1.1.0]: https://github.com/bitworks-io/gpu-fan-control/compare/v1.0.1...main
+[1.0.2]: https://github.com/bitworks-io/gpu-fan-control/releases/tag/v1.0.2
 [1.0.1]: https://github.com/bitworks-io/gpu-fan-control/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/bitworks-io/gpu-fan-control/releases/tag/v1.0.0

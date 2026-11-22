@@ -82,9 +82,9 @@ Checks run on test systems since then:
   - After a hard kill, `--restore-auto` restored automatic control from the journal.
   - The signed rc.3 installer installed cleanly over 1.0.1.
 - **RDNA3:**
-  - RX 7800 XT test card: release to automatic control and the restore path verified.
+  - RX 7800 XT test card: release to automatic control verified.
   - RX 7900 XT test card: release to automatic control on exit verified, factory reset confirmed.
-  - Fan regulation on RDNA3 is still being validated. On the RX 7900 XT the fan's rpm stayed flat across one duty step (41 to 43 %) while the driver applied the commanded duty, so that check did not pass; a re-check is planned.
+  - Fan regulation on RDNA3 is still being validated. On the RX 7900 XT the fan's rpm stayed flat across one duty step (41 to 43 %) while the driver applied the commanded duty, so that check did not pass; one check on an RX 7900 XT is being repeated.
 - **RDNA2:** an RX 6400 test card reports no manual fan tuning support through ADLX, so the app does not control its fan. Nothing to validate on that card.
 - **Not covered by these checks (still pending):** over-temperature, sensor loss, two-GPU, ADL fallback.
 - **v1.0.2** (released 2026-11-18, signed, 1.0 line, not `latest`): an uninstall after a 1.1 to 1.0.2 downgrade no longer hangs; shown in CI. 1.0.0 and 1.0.1 remain affected.

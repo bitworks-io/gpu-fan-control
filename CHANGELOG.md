@@ -8,7 +8,7 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
-- An upgrade over a running 1.0.2 or 1.1 build first asks it to stop gracefully (it releases its fans to the driver's automatic control) and only then force-closes it as a fallback. Before, the installer always force-closed it, so the new version started from the old one's fan curve. 1.0.0/1.0.1 are still force-closed (they have no graceful stop).
+- An upgrade over a running 1.0.2 or 1.1 build first asks it to stop gracefully (it releases its fans to the driver's automatic control) and only then force-closes it as a fallback. Before, the installer always force-closed it, which skipped the old app's fan restore. 1.0.0/1.0.1 are still force-closed (they have no graceful stop).
 - Uninstall no longer errors if the app's exe was removed or renamed, for uninstall logs written by 1.1.1 or later (`skipifdoesntexist`).
 
 ## [1.1.0] — 2026-11-23

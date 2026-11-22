@@ -3,7 +3,7 @@
 
 #define MyAppName "Lightweight AMD GPU Fan Control"
 #ifndef MyAppVersion
-  #define MyAppVersion "1.1.0"
+  #define MyAppVersion "1.1.1"
 #endif
 #define MyAppPublisher "Bitworks"
 #define MyAppExeName "LightweightAmdGpuFanControl.exe"
@@ -29,7 +29,8 @@ PrivilegesRequired=lowest
 MinVersion=10.0
 ; The app is a windowless systray process; Restart Manager can't reliably close it and the install
 ; hung when a previous copy was running. Disable RM's close attempt and terminate the old instance
-; ourselves in [Code] PrepareToInstall (then relaunch it — see [Run]).
+; ourselves in [Code] PrepareToInstall: a graceful --stop first, then a force-close fallback (then relaunch
+; it — see [Run]).
 CloseApplications=no
 
 [Languages]
@@ -65,9 +66,9 @@ Filename: "{app}\{#MyAppExeName}"; Flags: nowait; Check: ClosedRunningInstance
 ; 1. --stop asks the running app to exit gracefully; that restores every backend, ADL included.
 ; 2. taskkill is only a fallback for an app that did not stop (or an older build with no --stop listener).
 ; 3. --restore-auto covers ADLX after a kill, from the journal.
-Filename: "{app}\{#MyAppExeName}"; Parameters: "--stop"; Flags: runhidden waituntilterminated; RunOnceId: "StopApp"
+Filename: "{app}\{#MyAppExeName}"; Parameters: "--stop"; Flags: runhidden waituntilterminated skipifdoesntexist; RunOnceId: "StopApp"
 Filename: "{cmd}"; Parameters: "/C taskkill /F /IM {#MyAppExeName}"; Flags: runhidden waituntilterminated; RunOnceId: "KillApp"
-Filename: "{app}\{#MyAppExeName}"; Parameters: "--restore-auto"; Flags: runhidden waituntilterminated; RunOnceId: "RestoreFans"
+Filename: "{app}\{#MyAppExeName}"; Parameters: "--restore-auto"; Flags: runhidden waituntilterminated skipifdoesntexist; RunOnceId: "RestoreFans"
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{localappdata}\Bitworks\LightweightAmdGpuFanControl"
@@ -120,18 +121,69 @@ begin
   Result := not GClosedRunningInstance;
 end;
 
+// Version gate: true when MS.LS (as from GetVersionNumbers) is at or above MinMS.MinLS. MS holds
+// major.minor and LS holds build.revision, so compare MS first, then LS.
+function VersionAtLeast(MS, LS, MinMS, MinLS: Cardinal): Boolean;
+begin
+  if MS <> MinMS then Result := MS > MinMS else Result := LS >= MinLS;
+end;
+
+// 1.0.2.0 is the first build with a real graceful --stop. 1.0.0 and 1.0.1 ignore arguments and would
+// open a second tray (hanging setup), so they are never sent --stop. A missing exe or an unreadable
+// version is False.
+function SupportsGracefulStop(const Exe: String): Boolean;
+var
+  MS, LS: Cardinal;
+begin
+  Result := False;
+  if FileExists(Exe) and GetVersionNumbers(Exe, MS, LS) then
+    Result := VersionAtLeast(MS, LS, $00010000, $00020000);
+end;
+
+// The installed exe's version for the log: a.b.c.d, 'unknown' (unreadable) or 'missing' (no exe).
+function InstalledVersionText(const Exe: String): String;
+var
+  MS, LS: Cardinal;
+begin
+  if not FileExists(Exe) then
+    Result := 'missing'
+  else if GetVersionNumbers(Exe, MS, LS) then
+    Result := IntToStr(MS shr 16) + '.' + IntToStr(MS and $FFFF) + '.' + IntToStr(LS shr 16) + '.' + IntToStr(LS and $FFFF)
+  else
+    Result := 'unknown';
+end;
+
 // Close a previously-running instance so its locked EXE/DLLs can be replaced. The app is a
-// windowless systray process that Restart Manager can't reliably close (CloseApplications=no),
-// so terminate it directly. taskkill exit code 0 means an instance was actually running and
-// killed — record that so [Run] relaunches it (the forced close skipped the app's fan-restore).
+// windowless systray process that Restart Manager can't reliably close (CloseApplications=no).
+// 1. A build with a graceful --stop (>= 1.0.2.0) is asked to stop; it releases its fans to the driver.
+//    Exit 0 means it was running and stopped: record that so [Run] relaunches it.
+// 2. taskkill is the fallback for anything still running (older builds, or a --stop that failed or
+//    timed out). Exit 0 means an instance was running and got killed: record that too.
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
   ResultCode: Integer;
+  Exe, GateText: String;
+  Gate: Boolean;
 begin
   Result := '';
+  Exe := ExpandConstant('{app}\{#MyAppExeName}');
+  Gate := SupportsGracefulStop(Exe);
+  if Gate then GateText := 'yes' else GateText := 'no';
+  Log('PrepareToInstall: graceful stop gate=' + GateText + ' version=' + InstalledVersionText(Exe));
+  if Gate then
+  begin
+    if Exec(Exe, '--stop', '', SW_HIDE, ewWaitUntilTerminated, ResultCode) then
+    begin
+      Log('PrepareToInstall: --stop exit ' + IntToStr(ResultCode));
+      if ResultCode = 0 then GClosedRunningInstance := True;
+    end
+    else
+      Log('PrepareToInstall: --stop exit failed to launch');
+  end;
   if Exec(ExpandConstant('{cmd}'), '/C taskkill /F /IM {#MyAppExeName}', '',
           SW_HIDE, ewWaitUntilTerminated, ResultCode) then
   begin
+    Log('PrepareToInstall: taskkill exit ' + IntToStr(ResultCode));
     if ResultCode = 0 then
     begin
       GClosedRunningInstance := True;

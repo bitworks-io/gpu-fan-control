@@ -4,6 +4,13 @@ All notable changes to **Lightweight AMD GPU Fan Control** are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.1] — Unreleased
+
+### Fixed
+
+- An upgrade over a running 1.0.2 or 1.1 build first asks it to stop gracefully (it releases its fans to the driver's automatic control) and only then force-closes it as a fallback. Before, the installer always force-closed it, so the new version started from the old one's fan curve. 1.0.0/1.0.1 are still force-closed (they have no graceful stop).
+- Uninstall no longer errors if the app's exe was removed or renamed (`skipifdoesntexist`).
+
 ## [1.1.0] — 2026-11-23
 
 RDNA1 (RX 5700 / 5600 series) support, read-only diagnostics, an unattended

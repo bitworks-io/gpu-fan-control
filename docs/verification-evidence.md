@@ -71,6 +71,24 @@ gh run download <run-id> -n LightweightAmdGpuFanControl-Setup
 - **Not run:** the Windows CI build and installer, and all on-hardware behaviour.
 - **No hardware validation has run yet.** E1 (read-only probe), E2 (controlled engagement on RDNA1) and E3 (automation regression across generations) are pending approval; see `docs/superpowers/plans/2026-11-06-rdna1-fan-control.md` section 6. RDNA1 control, the bound-line pre-load, the restore journal and `--restore-auto` are unverified on real hardware.
 
+## Hardware checks after rc.3 (2026-11)
+
+1.1.0-rc.3 was published 2026-11-09 as a signed prerelease (not `latest`; `latest` is v1.0.1).
+Checks run on test systems since then:
+
+- **RDNA1, RX 5700 XT test system:**
+  - Under load the app regulated the fan along its curve: increases followed, no abort.
+  - On exit the GPU went back to the driver's automatic control; the factory reset was confirmed and the idle fan stop came back (0 rpm at idle).
+  - After a hard kill, `--restore-auto` restored automatic control from the journal.
+  - The signed rc.3 installer installed cleanly over 1.0.1.
+- **RDNA3:**
+  - RX 7800 XT test card: release to automatic control verified.
+  - RX 7900 XT test card: release to automatic control on exit verified, factory reset confirmed.
+  - Fan regulation on RDNA3 is still being validated. On the RX 7900 XT the fan's rpm stayed flat across one duty step (41 to 43 %) while the driver applied the commanded duty, so that check did not pass; one check on an RX 7900 XT is being repeated.
+- **RDNA2:** an RX 6400 test card reports no manual fan tuning support through ADLX, so the app does not control its fan. Nothing to validate on that card.
+- **Not covered by these checks (still pending):** over-temperature, sensor loss, two-GPU, ADL fallback.
+- **v1.0.2** (released 2026-11-18, signed, 1.0 line, not `latest`): an uninstall after a 1.1 to 1.0.2 downgrade no longer hangs; shown in CI. 1.0.0 and 1.0.1 remain affected.
+
 ## 2026-07-12 Phase 5 — first hardware test (RX 7900 XTX) + fixes
 
 - **Hardware finding:** fan increased when raising min fan speed but would not slow back down when

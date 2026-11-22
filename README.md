@@ -40,7 +40,9 @@ target — a simpler, always-on alternative to the AMD Adrenalin fan-curve UI.
 - **Restore-to-automatic on exit** — every graceful shutdown path hands
   control back to the driver's automatic fan management
   (see [How restore works](#how-restore-works)).
-- **RDNA1 (RX 5700 / 5600 series) support, pending hardware validation** — when the
+- **RDNA1 (RX 5700 / 5600 series) support, validated on an RX 5700 XT test system** (1.1.0-rc.3
+  prerelease; RDNA3 release to automatic control is verified, fan regulation on RDNA3 is still
+  being validated) — when the
   bound AMD driver package's ADL/ADLX differs from System32's, the app loads the
   bound package's own AMD-signed copies. Read-only `--probe` and unattended
   `--automation` modes are included; see [Command-line options](#command-line-options).
@@ -236,6 +238,30 @@ confirmed reset it clears that GPU's old journal entry. Afterwards `--probe` sho
    `%LOCALAPPDATA%\Bitworks\LightweightAmdGpuFanControl\log.txt` for errors.
 6. When reporting a problem, run `LightweightAmdGpuFanControl.exe --probe` and attach the
    `probe-*.txt` from `%LOCALAPPDATA%\Bitworks\LightweightAmdGpuFanControl`.
+
+### Known issues
+
+- **Don't downgrade below 1.0.2 after installing any 1.1 build.** After a 1.1 build, installing
+  1.0.0 or 1.0.1 over it leaves an uninstaller that can hang, because the older exe opens its
+  tray instead of stopping. Fix: install 1.0.2, or a 1.1 build, over it, then uninstall.
+- **Upgrading while the app is running.** The installer force-closes a running app, whatever its
+  version, which skips its fan restore. Stop the app before upgrading.
+  - Running **1.0.x**: the new version starts from the fan curve the old one left behind, not from
+    the factory state. To get the factory fan state back, afterwards (with the app closed) run
+    `LightweightAmdGpuFanControl.exe --reset-tuning-to-factory --gpu <uniqueId>`, taking the id
+    from `--probe` (see [Command-line options](#command-line-options)). That resets **ALL of this GPU's tuning (clock, VRAM, power and fan) to
+    factory settings, not only the fan**.
+  - Running a **1.1 build**: on an ADLX GPU the next start reuses the pre-app fan state saved in
+    its journal (`baseline.json`) as long as the fan still looks like one the app set (a flat
+    duty), so a later exit restores it. Exceptions:
+    - If the app was closed in the middle of a fan write, the fan may not look app-set, and the
+      new version starts from the closed app's fan points.
+    - A journal entry written by rc.1 or rc.2 has no recorded factory state, so its saved fan
+      points are re-applied rather than a factory reset.
+    - A GPU on the ADL fallback has no journal; on exit the app hands it back to the driver's
+      automatic fan mode.
+  - 1.1.1 (in development) asks a running 1.0.2 or later build to stop gracefully first;
+    1.0.0 and 1.0.1 are still force-closed.
 
 ## Reporting Issues
 

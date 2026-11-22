@@ -30,10 +30,10 @@ user, then silently over-installs the same build with `/LOG`. It asserts that th
 process of the scenario's user (the relaunch) runs from the installed path; teardown stops it.
 Why `--stop` exits 1 on a runner with no AMD GPU: `FanControlService.Start` shows a modal "AMD fan control
 unavailable" `MessageBox` when no backend initialises (`FanControlService.cs:105`) and is called from the
-`SystrayApplicationContext` constructor (`SystrayApplicationContext.cs:72`), so the constructor never reaches
+`SystrayApplicationContext` constructor (`SystrayApplicationContext.cs:76`), so the constructor never reaches
 `StopSignal.Listen` (`SystrayApplicationContext.cs:89`). The tray holds the single-instance mutex but has no
-stop event, so `--stop` logs "a running instance has no stop listener" and exits 1 (`StopCommand.cs:25`).
-The taskkill fallback then ends the tray (exit 0) and `[Run]` relaunches it. The graceful (exit 0) path
+stop event, so `--stop` logs "a running instance has no stop listener" and exits 1 (`StopCommand.cs:28-29`).
+The taskkill fallback then ends the tray (exit 0) and `[Run]` relaunches it. The harness waits 5 s after the tray appears; it treats a foreign app process, a tray owner/session that differs from the installer's, or a `--stop` exit 3 as preconditions, not product failures. The tray is stopped in a `finally`. The graceful (exit 0) path
 needs a real GPU and is not exercised here.
 
 **Order matters.** S5 hangs on purpose and leaves its own user's app process running until teardown, which

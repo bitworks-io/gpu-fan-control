@@ -175,11 +175,19 @@ begin
     if Exec(Exe, '--stop', '', SW_HIDE, ewWaitUntilTerminated, ResultCode) then
     begin
       Log('PrepareToInstall: --stop exit ' + IntToStr(ResultCode));
-      if ResultCode = 0 then GClosedRunningInstance := True;
+      if ResultCode = 0 then
+      begin
+        GClosedRunningInstance := True;
+        // Same as the kill path: let Windows release the file handles before we overwrite the EXE/DLLs.
+        Sleep(1500);
+      end;
     end
     else
       Log('PrepareToInstall: --stop exit failed to launch');
   end;
+  // Fallback. After --stop exits 1 (no listener, or its 20 s timeout, StopCommand.cs:35) this kill can land
+  // during a slow restore. ADLX GPUs recover from the baseline journal on the next start; the ADL fallback
+  // has no journal.
   if Exec(ExpandConstant('{cmd}'), '/C taskkill /F /IM {#MyAppExeName}', '',
           SW_HIDE, ewWaitUntilTerminated, ResultCode) then
   begin

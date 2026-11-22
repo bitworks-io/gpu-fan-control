@@ -176,6 +176,14 @@ Installer used for this 1.0-era checklist: CI run `28686185843` artifact `Lightw
 - **Fallback:** on a single-ADLX-GPU system, no ADLX channel (for example `FanController.Initialize` fails closed because the pre-app fan state cannot be read) means the existing fallback to the ADL backend, which has no release plan (it restores the driver default).
 - **Open:** fan regulation on the RX 7900 XT is not verified (one check at 41 to 43 % did not pass; re-test planned); over-temperature, sensor loss, two-GPU and ADL fallback checks remain pending.
 
+## 1.1.1 (in development)
+
+- **H1, graceful stop on upgrade.** `PrepareToInstall` first runs the installed exe with `--stop` when its file version is 1.0.2.0 or newer, so the old app releases its fans to the driver's automatic control. Only then does the existing `taskkill` run, as a fallback. The gate is 1.0.2.0 because 1.0.0 and 1.0.1 ignore arguments and would open a second tray, hanging setup; a missing exe or an unreadable version skips `--stop`. `--stop` exit 0 sets the relaunch flag and waits 1500 ms, as the kill path does. The setup log records `PrepareToInstall: graceful stop gate=... version=...`, `--stop exit <n>` and `taskkill exit <n>`.
+- **H2, uninstall.** The `--stop` and `--restore-auto` `[UninstallRun]` entries carry `skipifdoesntexist`, so a removed or renamed exe no longer errors. It applies to uninstall logs written by 1.1.1 or later.
+- **CI scenario S7** (`tools/uninstall-repro`): upgrade over a running 1.1 tray. On a GPU-less runner `--stop` exits 1 (the tray is still inside its no-backend dialog and has no stop listener), so the taskkill fallback and the relaunch are what CI proves. Owner/session mismatch, a foreign app process, or `--stop` exit 3 are reported as preconditions, not product failures.
+- **Before publish:** the graceful exit-0 path (a tray that stops and releases the fans itself) needs the declared hardware check on a real GPU. CI cannot exercise it.
+- **Merge condition:** `VERSION` is already 1.1.1 on this branch. Merge only after v1.1.0 is released (rc.3 promoted).
+
 ## Context Handoff Hygiene
 
 - Keep durable context short and decision-focused: current architecture, contracts, operational assumptions, verification commands, known risks, and unresolved blockers.

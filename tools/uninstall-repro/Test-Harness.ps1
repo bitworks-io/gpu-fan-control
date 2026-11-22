@@ -235,6 +235,19 @@ $f = Invoke-Upgrade $pl -Procs 0
 Check 'upgrade: no relaunched process fails' ($f.Count -gt 0)
 $f = Invoke-Upgrade $pl -Procs 2
 Check 'upgrade: two app processes fails' ($f.Count -gt 0)
+# S7 preconditions: tray owner/session must match the installer's; --stop exit 3 means the tray was not yet running.
+$ok = @(Get-UpgradePreconditionFailures -TrayOwner 'H\u' -TraySession 0 -InstallOwner 'H\u' -InstallSession 0 -Lines $pl)
+Check 'precondition: matching owner/session and --stop exit 1 pass' ($ok.Count -eq 0) ($ok -join '; ')
+$bad = @(Get-UpgradePreconditionFailures -TrayOwner 'H\u' -TraySession 0 -InstallOwner 'H\other' -InstallSession 0 -Lines $pl)
+Check 'precondition: owner mismatch fails as a precondition' (($bad.Count -eq 1) -and ($bad[0] -like 'precondition:*'))
+$bad = @(Get-UpgradePreconditionFailures -TrayOwner 'H\u' -TraySession 0 -InstallOwner 'H\u' -InstallSession 2 -Lines $pl)
+Check 'precondition: session mismatch fails as a precondition' (($bad.Count -eq 1) -and ($bad[0] -like 'precondition:*'))
+$bad = @(Get-UpgradePreconditionFailures -TrayOwner '' -TraySession 0 -InstallOwner '' -InstallSession 0 -Lines $pl)
+Check 'precondition: empty owners fail' ($bad.Count -gt 0)
+$exit3 = @(Get-PrepareToInstallLines -Text "Log: PrepareToInstall: graceful stop gate=yes version=1.1.1.0`nLog: PrepareToInstall: --stop exit 3`nLog: PrepareToInstall: taskkill exit 128`n")
+$bad = @(Get-UpgradePreconditionFailures -TrayOwner 'H\u' -TraySession 0 -InstallOwner 'H\u' -InstallSession 0 -Lines $exit3)
+Check 'precondition: --stop exit 3 is reported as a precondition (tray not yet holding its mutex)' (($bad.Count -eq 1) -and ($bad[0] -like '*not yet holding its mutex*'))
+
 Check 'table: S7 asserted, tray after step 1, test,test, pinned --stop exit 1' (($ScenarioTable.S7.Assert -eq $true) -and ($ScenarioTable.S7.TrayAfterStep -eq 1) -and (($ScenarioTable.S7.Steps -join ',') -eq 'test,test') -and ($ScenarioTable.S7.ExpectedStopExit -eq 1))
 
 if ($script:fails) { Write-Host "$script:fails check(s) failed"; exit 1 }

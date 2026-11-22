@@ -59,6 +59,20 @@ public class InstallerScriptGuardTests
     }
 
     [Fact]
+    public void GracefulStop_ExitZero_RelaunchesAndWaitsForHandles_OnlyInsideTheGate()
+    {
+        var body = Routine(Iss(), "PrepareToInstall");
+        var gateIf = body.IndexOf("if Gate then\n  begin", StringComparison.Ordinal);
+        var closing = body.IndexOf("\n  end;", gateIf, StringComparison.Ordinal);
+        var branch = body[gateIf..closing];
+        // --stop exit 0 means a running app stopped: [Run] must relaunch it, and file handles need a moment to drop.
+        Assert.Matches(@"if ResultCode = 0 then\n\s+begin\n\s+GClosedRunningInstance := True;\n(\s*//[^\n]*\n)*\s+Sleep\(1500\);\n\s+end;", branch);
+        // The graceful relaunch flag is set nowhere outside the gate branch except the taskkill path after it.
+        var beforeGate = body[..gateIf];
+        Assert.DoesNotContain("GClosedRunningInstance := True", beforeGate);
+    }
+
+    [Fact]
     public void GracefulStopGate_IsExactly1_0_2_0()
     {
         var iss = Iss();

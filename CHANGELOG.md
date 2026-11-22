@@ -130,12 +130,15 @@ control is verified, while fan regulation on RDNA3 is still being validated.
     `LightweightAmdGpuFanControl.exe --reset-tuning-to-factory --gpu <uniqueId>`, taking the id
     from `--probe`. That resets **ALL of this GPU's tuning (clock, VRAM, power and fan) to
     factory settings, not only the fan**.
-  - Running a **1.1 build on an ADLX GPU**: the next start reuses the pre-app fan state saved in
-    its journal (`baseline.json`), as long as the fan still looks like one the app set (a flat
-    duty). It does not reuse it after an ADL fallback (no journal), after a close in the middle of
-    a fan write (the fan may then not look app-set), or for a journal entry written by rc.1 or
-    rc.2 (no recorded factory state). In those cases the saved fan points are re-applied rather
-    than a factory reset.
+  - Running a **1.1 build**: on an ADLX GPU the next start reuses the pre-app fan state saved in
+    its journal (`baseline.json`) as long as the fan still looks like one the app set (a flat
+    duty), so a later exit restores it. Exceptions:
+    - If the app was closed in the middle of a fan write, the fan may not look app-set, and the
+      new version starts from the closed app's fan points.
+    - A journal entry written by rc.1 or rc.2 has no recorded factory state, so its saved fan
+      points are re-applied rather than a factory reset.
+    - A GPU on the ADL fallback has no journal; on exit the app hands it back to the driver's
+      automatic fan mode.
   - 1.1.1 (in development) asks a running 1.0.2 or later build to stop gracefully first;
     1.0.0 and 1.0.1 are still force-closed.
 

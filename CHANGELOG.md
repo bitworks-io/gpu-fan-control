@@ -4,13 +4,18 @@ All notable changes to **Lightweight AMD GPU Fan Control** are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.1.0] — Unreleased
+## [1.1.0] — 2026-11-23
 
 RDNA1 (RX 5700 / 5600 series) support, read-only diagnostics, an unattended
 mode, and a journal that restores the pre-app fan state after an unclean stop.
-Status: 1.1.0-rc.3 (a signed prerelease, published 2026-11-09; `latest` is still v1.0.1) is
-validated on an RX 5700 XT (RDNA1) test system; on RDNA3 test cards the release to automatic
-control is verified, while fan regulation on RDNA3 is still being validated.
+
+Released 2026-11-23 as `latest`. This is the signed 1.1.0-rc.3 build (published 2026-11-09 as a
+prerelease), promoted unchanged: the release's tag is `v1.1.0-rc.3`, and there is no `v1.1.0` tag.
+`LightweightAmdGpuFanControl-Setup.exe`, SHA-256
+`d6c4a10db026ce47db392da04966b42181c532dfafe834eee204656967d7e494`, file version 1.1.0.0.
+Validated on test systems: fan regulation and the release to automatic control on an RX 5700 XT
+(RDNA1) and an RX 7800 XT (RDNA3). An RX 6400 (RDNA2) offers no manual fan tuning, so the app
+writes nothing to it. Fan regulation on the RX 7900 XT is not verified (see Known issues).
 
 ### Fixed
 
@@ -24,8 +29,8 @@ control is verified, while fan regulation on RDNA3 is still being validated.
   Verified on an RX 5700 XT test system (RDNA1: on exit the GPU went back to the driver's
   automatic control, the factory reset was confirmed and the idle fan stop came back; after a
   hard kill, `--restore-auto` restored automatic control from the journal) and on RDNA3 test
-  cards (RX 7800 XT: release to automatic control; RX 7900 XT: release on exit with the factory
-  reset confirmed).
+  cards (RX 7800 XT: release to automatic control under load and at idle, with the idle fan stop
+  back; RX 7900 XT: release on exit with the factory reset confirmed).
   - **What the factory reset covers:** ADLX `ResetToFactory` resets auto, GPU, fan, VRAM and power
     tuning together, not just the fan. The app uses it only when the whole GPU was at factory
     settings before the app's first fan write. Non-fan tuning (clocks, VRAM, power) that you change
@@ -120,6 +125,11 @@ control is verified, while fan regulation on RDNA3 is still being validated.
 
 ### Known issues
 
+- **RX 7900 XT: fan regulation is not verified for this release.** In pre-release testing on an
+  RX 7900 XT, the release to automatic control on exit worked (factory reset confirmed). But one
+  fan-speed check at high fan duty did not pass: a commanded increase from 41 % to 43 % raised the
+  fan speed less than the test requires. A re-test is planned. Until it passes, treat fan
+  regulation on the RX 7900 XT as unverified.
 - **Don't downgrade below 1.0.2 after installing any 1.1 build.** After a 1.1 build, installing
   1.0.0 or 1.0.1 over it leaves an uninstaller that can hang, because the older exe opens its
   tray instead of stopping. Fix: install 1.0.2, or a 1.1 build, over it, then uninstall.
@@ -255,7 +265,7 @@ fan-curve UI. Publisher: Bitworks (bitworks.io).
 - No network calls except user-initiated browser opens to bitworks.io. No telemetry,
   no secrets.
 
-[1.1.0]: https://github.com/bitworks-io/gpu-fan-control/compare/v1.0.1...main
+[1.1.0]: https://github.com/bitworks-io/gpu-fan-control/releases/tag/v1.1.0-rc.3
 [1.0.2]: https://github.com/bitworks-io/gpu-fan-control/releases/tag/v1.0.2
 [1.0.1]: https://github.com/bitworks-io/gpu-fan-control/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/bitworks-io/gpu-fan-control/releases/tag/v1.0.0

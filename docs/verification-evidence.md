@@ -29,7 +29,7 @@ gh run view <run-id> --json status,conclusion,jobs
 gh run download <run-id> -n LightweightAmdGpuFanControl-Setup
 ```
 
-## Latest Acceptance Pass
+## 2026-07-03 — Phase 3 + 4 acceptance pass (1.0 development)
 
 - Date: 2026-07-03
 - Change or release: Phase 3 (multi-GPU per-channel architecture) + Phase 4 (About/Preferences UI, live tray tooltip). Commit `fe4e89c`.
@@ -73,8 +73,8 @@ gh run download <run-id> -n LightweightAmdGpuFanControl-Setup
 
 ## Hardware checks after rc.3 (2026-11)
 
-1.1.0-rc.3 was published 2026-11-09 as a signed prerelease (not `latest`; `latest` is v1.0.1).
-Checks run on test systems since then:
+1.1.0-rc.3 was published 2026-11-09 as a signed prerelease and promoted unchanged to the
+1.1.0 release (`latest`) on 2026-11-23 (see the next section). Checks run on test systems:
 
 - **RDNA1, RX 5700 XT test system:**
   - Under load the app regulated the fan along its curve: increases followed, no abort.
@@ -83,11 +83,18 @@ Checks run on test systems since then:
   - The signed rc.3 installer installed cleanly over 1.0.1.
 - **RDNA3:**
   - RX 7800 XT test card: release to automatic control verified.
+  - RX 7800 XT test card, 2026-11-23, under load: fan regulation passed. Each of three commanded increases (20 to 23 %, 23 to 25 %, 25 to 28 %) raised the fan speed by at least the required amount; the start-up self-test passed; the release to automatic control was confirmed, and a probe afterwards read the GPU as at factory settings; afterwards the fan was back at 0 rpm at idle. Peak temperatures 56 °C edge, 85 °C hotspot.
   - RX 7900 XT test card: release to automatic control on exit verified, factory reset confirmed.
-  - Fan regulation on RDNA3 is still being validated. On the RX 7900 XT the fan's rpm stayed flat across one duty step (41 to 43 %) while the driver applied the commanded duty, so that check did not pass; one check on an RX 7900 XT is being repeated.
+  - Fan regulation on the RX 7900 XT is not verified for 1.1.0. The fan's rpm stayed flat across one duty step (41 to 43 %) while the driver applied the commanded duty, so the rise was less than the test requires and that check did not pass. A re-test is planned.
 - **RDNA2:** an RX 6400 test card reports no manual fan tuning support through ADLX, so the app does not control its fan. Nothing to validate on that card.
 - **Not covered by these checks (still pending):** over-temperature, sensor loss, two-GPU, ADL fallback.
 - **v1.0.2** (released 2026-11-18, signed, 1.0 line, not `latest`): an uninstall after a 1.1 to 1.0.2 downgrade no longer hangs; shown in CI. 1.0.0 and 1.0.1 remain affected.
+
+## 2026-11-23 — 1.1.0 released (rc.3 promoted unchanged)
+
+- **Action:** `gh release edit v1.1.0-rc.3 --prerelease=false --latest --title "v1.1.0" --notes-file <curated notes>`. No new tag, no rebuild, no new signature.
+- **Read-back:** the release is titled `v1.1.0` and is not a prerelease; `releases/latest` resolves to it; the installer asset's SHA-256 is unchanged (`d6c4a10db026ce47db392da04966b42181c532dfafe834eee204656967d7e494`, file version 1.1.0.0); the tag `v1.1.0-rc.3` still points at the rc.3 commit; the published body matches the curated notes; the `releases/latest/download/LightweightAmdGpuFanControl-Setup.exe` URL returns 200.
+- **Known issue carried in the notes:** RX 7900 XT fan regulation not verified (see above).
 
 ## 2026-07-12 Phase 5 — first hardware test (RX 7900 XTX) + fixes
 

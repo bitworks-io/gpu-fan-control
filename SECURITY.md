@@ -40,5 +40,7 @@ security reports seriously and will respond as quickly as we're able.
 - The application makes no outbound network calls except user-initiated
   browser opens (e.g. the feedback/contact link to bitworks.io). It collects
   no telemetry and stores no secrets.
-- The current release build is unsigned; Windows SmartScreen will warn on
-  first run. Code signing is a planned fast-follow.
+- Release installers are Authenticode-signed (publisher Bitworks LLC)
+  through CI. The app's own executable inside the installer is not signed
+  yet. Windows SmartScreen may still warn on a new release until the file
+  builds reputation.

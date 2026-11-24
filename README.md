@@ -40,9 +40,9 @@ target — a simpler, always-on alternative to the AMD Adrenalin fan-curve UI.
 - **Restore-to-automatic on exit** — every graceful shutdown path hands
   control back to the driver's automatic fan management
   (see [How restore works](#how-restore-works)).
-- **RDNA1 (RX 5700 / 5600 series) support, validated on an RX 5700 XT test system** (1.1.0-rc.3
-  prerelease; RDNA3 release to automatic control is verified, fan regulation on RDNA3 is still
-  being validated) — when the
+- **RDNA1 (RX 5700 / 5600 series) support, validated on an RX 5700 XT test system** (since
+  1.1.0; fan regulation is also validated on an RX 7800 XT, but not yet on an RX 7900 XT, see
+  [Known issues](#known-issues)) — when the
   bound AMD driver package's ADL/ADLX differs from System32's, the app loads the
   bound package's own AMD-signed copies. Read-only `--probe` and unattended
   `--automation` modes are included; see [Command-line options](#command-line-options).
@@ -241,6 +241,11 @@ confirmed reset it clears that GPU's old journal entry. Afterwards `--probe` sho
 
 ### Known issues
 
+- **RX 7900 XT: fan regulation is not verified for 1.1.0.** In pre-release testing on an
+  RX 7900 XT, the release to automatic control on exit worked (factory reset confirmed). But one
+  fan-speed check at high fan duty did not pass: a commanded increase from 41 % to 43 % raised the
+  fan speed less than the test requires. A re-test is planned. Until it passes, treat fan
+  regulation on the RX 7900 XT as unverified.
 - **Don't downgrade below 1.0.2 after installing any 1.1 build.** After a 1.1 build, installing
   1.0.0 or 1.0.1 over it leaves an uninstaller that can hang, because the older exe opens its
   tray instead of stopping. Fix: install 1.0.2, or a 1.1 build, over it, then uninstall.

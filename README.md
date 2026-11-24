@@ -67,9 +67,11 @@ to download, and **no administrator rights are needed** to install or run it.
    [latest release](../../releases/latest).
 2. Run the installer. It installs per-user and does **not** require
    administrator rights.
-3. **SmartScreen notice:** this build is not yet code-signed, so Windows
-   SmartScreen may show "Windows protected your PC." Click **More info →
-   Run anyway** to proceed. Signing is a planned fast-follow.
+3. **SmartScreen notice:** the installer is code-signed by Bitworks LLC.
+   SmartScreen builds trust per file, so a new release may still show
+   "Windows protected your PC." Click **More info**, check that the
+   publisher is Bitworks LLC, then click **Run anyway**. The app's own
+   `.exe` inside the installer is not signed yet.
 
 ## First Run / Usage
 

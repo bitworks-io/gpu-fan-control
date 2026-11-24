@@ -29,7 +29,7 @@ gh run view <run-id> --json status,conclusion,jobs
 gh run download <run-id> -n LightweightAmdGpuFanControl-Setup
 ```
 
-## Latest Acceptance Pass
+## 2026-07-03 — Phase 3 + 4 acceptance pass (1.0 development)
 
 - Date: 2026-07-03
 - Change or release: Phase 3 (multi-GPU per-channel architecture) + Phase 4 (About/Preferences UI, live tray tooltip). Commit `fe4e89c`.

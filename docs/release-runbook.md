@@ -15,9 +15,9 @@ the rest. Everything below is the discipline around that one action.
 
 1. **`build`** (windows-latest): runs unit tests → `build.ps1` (publish + Inno Setup
    installer) → verifies `ADLXCSharpBind.dll` / `ADLXWrapper.dll` are present →
-   uploads `LightweightAmdGpuFanControl-Setup.exe`. Signing steps are a gated no-op
-   (skipped while the `AZURE_CLIENT_ID` secret is unset — see
-   [signing-setup.md](signing-setup.md)).
+   uploads `LightweightAmdGpuFanControl-Setup.exe`. On a `v*` tag the installer is
+   signed through Azure Artifact Signing (gated on the `AZURE_CLIENT_ID` secret and the
+   tag; see [signing-setup.md](signing-setup.md)). PR and `main` builds stay unsigned.
 2. **`release`** (ubuntu-latest, `if: startsWith(github.ref, 'refs/tags/v')`):
    downloads the installer artifact and creates a **GitHub Release** via
    `softprops/action-gh-release@v2`, attaching `Setup.exe`, with
@@ -40,6 +40,12 @@ binary is not any previously-downloaded artifact.
   - Installers that compare file versions will not replace an rc with the final.
     Tag the final **on the validated rc's code**, or on a docs-only commit after it.
   - If code changes after validation, cut a new rc instead.
+  - **Or promote the validated rc** instead of tagging the final:
+    `gh release edit vX.Y.Z-rc.N --prerelease=false --latest --title "vX.Y.Z" --notes-file <curated notes>`.
+    There is no rebuild: the same signed installer becomes `latest`, and the release keeps
+    the rc tag. 1.1.0 shipped this way, so **never push a `v1.1.0` tag**: CI would build,
+    sign and publish a second 1.1.0 with a different installer and make it `latest`.
+    Use one route per version.
 - **Before uninstalling an rc,** copy `log.txt`, `probe-*.txt` and `status.json` out of
   `%LOCALAPPDATA%\Bitworks\LightweightAmdGpuFanControl` first. The uninstaller
   deletes that folder.
@@ -176,9 +182,9 @@ either line, but CHANGELOG.md must be on the tagged commit.
 
 ## Signing caveat
 
-The build is **unsigned by default** — Windows SmartScreen warns on first run. The
-workflow has real, gated **Azure Artifact Signing** steps (`azure/login` +
-`azure/artifact-signing-action`) that stay skipped until six `AZURE_*` repo secrets
-are set; see [signing-setup.md](signing-setup.md) for the one-time Azure onboarding.
-Provisioning the account is a separate follow-up; it does not block the v1.0.0 mechanics.
-Note: even once signed, SmartScreen reputation still accrues per file over download volume.
+Only `v*` tag builds are signed: the gated **Azure Artifact Signing** steps
+(`azure/login` OIDC + `azure/artifact-signing-action`) sign the installer, and PR and
+`main` builds stay unsigned. See [signing-setup.md](signing-setup.md) for the Azure
+setup. The app's own `.exe` inside the installer is not signed yet (signing-setup.md §4).
+Even signed, SmartScreen reputation still accrues per file over download volume, so a
+new release can still show a warning.

@@ -1,6 +1,6 @@
 # Agent Handoff
 
-Last reviewed: 2026-11-23
+Last reviewed: 2026-11-24
 
 This document is for the next implementation agent (Codex, Claude Code, or human). Keep it current when architecture, workflows, verification commands, release steps, or known risks change.
 
@@ -94,7 +94,7 @@ gh run download <id> -n LightweightAmdGpuFanControl-Setup         # get Setup.ex
 - **Library loading (1.1.0):** `atiadlxx.dll` / `amdadlx64.dll` are never loaded by DLL search. They come from the bound driver package in the DriverStore (only when they differ from System32, pass `WinVerifyTrust` and match the signer pin) or from `%windir%\System32` by full path. Signer pin: subject `O=Advanced Micro Devices`, issuer `CN=Sectigo Public Code Signing CA R36`. Pre-loaded modules are never freed. The pre-load never writes, copies or deletes a file. `ADLXCSharpBind.dll` (our own file) still loads from the app directory.
 - `--probe` compiles against a read-only interface (`IFanCapabilitySource`) with no fan setter.
 - Native P/Invoke to AMD driver DLLs (`atiadlxx.dll`, ADLX). Driver-provided DLLs are **not** bundled (loaded from system); only the SWIG binding (`ADLXCSharpBind.dll`) and managed wrapper (`ADLXWrapper.dll`) ship.
-- **Unsigned build** → Windows SmartScreen will warn. Real, gated **Azure Artifact Signing** steps (`azure/login` OIDC + `azure/artifact-signing-action`) are in the workflow but skipped until the `AZURE_*` repo secrets are set; onboarding in [signing-setup.md](signing-setup.md).
+- **Signing:** `v*` tag builds sign the installer through **Azure Artifact Signing** (`azure/login` OIDC + `azure/artifact-signing-action`, in the release environment); PR and `main` builds stay unsigned. The 1.1.0 installer (`d6c4a10d…`) reads Authenticode `Valid`, signer `O=Bitworks LLC`. The inner app `.exe` is not signed yet ([signing-setup.md](signing-setup.md) §4), and SmartScreen can still warn on a new release until it builds reputation. Never sign locally.
 
 ## Operational Notes
 
@@ -107,10 +107,10 @@ gh run download <id> -n LightweightAmdGpuFanControl-Setup         # get Setup.ex
 
 ## Commit And Release Guidance
 
-- Version single-sourced in `VERSION` (currently `1.0.0`); `build.ps1` and the installer read it. Tag-push `v*` triggers the CI `release` job (GitHub Release + Setup.exe).
-- **Release mechanics are staged in `docs/release-runbook.md`** (preconditions, the one-action tag/push, tag-target decision, curated-notes step, post-release verification, rollback). Tag is intentionally uncut pending Phase 5. `CHANGELOG.md` is drafted (v1.0.0, marked unreleased) — it must ride onto the commit that gets tagged.
+- Version single-sourced in `VERSION` (currently `1.1.0`); `build.ps1` and the installer read it. Tag-push `v*` triggers the CI `release` job (GitHub Release + signed Setup.exe); a tag with a hyphen (`-rc.N`) publishes a prerelease that never becomes `latest`.
+- **Release mechanics are in `docs/release-runbook.md`** (preconditions, the one-action tag/push, tag-target decision, rc promotion, curated-notes step, post-release verification, rollback). `CHANGELOG.md` must ride onto the commit that gets tagged. 1.1.0 was released by promoting rc.3 (see 1.1.0 status, step 4), so never push a `v1.1.0` tag.
 - Keep native-binding csproj guard + CI verify step intact — they are the guardrail against silently shipping a broken installer.
-- Branch `feature/v1.0-release-readiness`, draft PR #3 → main.
+- **Open work:** the 1.1.1 draft PR (graceful `--stop` before the force-close on upgrade) targets `main`. It stays a draft until its declared hardware check passes and it is reviewed. After the 1.1.0-released docs change merges, it needs one more rebase: both touch the top of `CHANGELOG.md`.
 
 ## Phase 5 Progress (started 2026-07-12, Radeon RX 7900 XTX)
 
@@ -145,7 +145,7 @@ Re-test the fixes above on the RX 7900 XTX, plus the original checklist. Run on 
 6. Feedback buttons (About + Preferences) open https://bitworks.io/contact-us/.
 7. (If ADL/legacy hardware available) primary-GPU control works via the ADL fallback.
 
-Latest installer for testing: CI run `28686185843` artifact `LightweightAmdGpuFanControl-Setup` (also saved locally at `~/Downloads/LightweightAmdGpuFanControl-v1.0/`).
+Installer used for this 1.0-era checklist: CI run `28686185843` artifact `LightweightAmdGpuFanControl-Setup`. For current testing, use the [latest release](https://github.com/bitworks-io/gpu-fan-control/releases/latest).
 
 ## 1.1.0 status
 

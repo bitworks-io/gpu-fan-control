@@ -269,7 +269,7 @@ confirmed reset it clears that GPU's old journal entry. Afterwards `--probe` sho
       automatic fan mode.
   - From 1.1.1 the installer first asks a running 1.0.2 or later build to stop gracefully (it
     releases its fans); 1.0.0 and 1.0.1 are still force-closed, and a build that doesn't stop within
-    its timeout is force-closed as before.
+    its timeout is force-closed as before. Upgrading over a running 1.1.0 was tested on an AMD Radeon RX 7800 XT: the running app released its fans to the driver's automatic control before the upgrade replaced it.
 
 ## Reporting Issues
 

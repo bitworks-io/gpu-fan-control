@@ -107,10 +107,10 @@ gh run download <id> -n LightweightAmdGpuFanControl-Setup         # get Setup.ex
 
 ## Commit And Release Guidance
 
-- Version single-sourced in `VERSION` (currently `1.1.0`); `build.ps1` and the installer read it. Tag-push `v*` triggers the CI `release` job (GitHub Release + signed Setup.exe); a tag with a hyphen (`-rc.N`) publishes a prerelease that never becomes `latest`.
+- Version single-sourced in `VERSION` (currently `1.1.1`); `build.ps1` and the installer read it. Tag-push `v*` triggers the CI `release` job (GitHub Release + signed Setup.exe); a tag with a hyphen (`-rc.N`) publishes a prerelease that never becomes `latest`.
 - **Release mechanics are in `docs/release-runbook.md`** (preconditions, the one-action tag/push, tag-target decision, rc promotion, curated-notes step, post-release verification, rollback). `CHANGELOG.md` must ride onto the commit that gets tagged. 1.1.0 was released by promoting rc.3 (see 1.1.0 status, step 4), so never push a `v1.1.0` tag.
 - Keep native-binding csproj guard + CI verify step intact — they are the guardrail against silently shipping a broken installer.
-- **Open work:** the 1.1.1 draft PR (graceful `--stop` before the force-close on upgrade) targets `main`. It stays a draft until its declared hardware check passes and it is reviewed. After the 1.1.0-released docs change merges, it needs one more rebase: both touch the top of `CHANGELOG.md`.
+- **Open work:** the 1.1.1 PR (graceful `--stop` before the force-close on upgrade) targets `main` and is out of draft for review. Its declared hardware check passed on 2026-11-25 with the signed `v1.1.1-rc.1` prerelease (see the 1.1.1 section). It merges only after review and the owner's OK; promoting the prerelease to `latest` is a separate, later step.
 
 ## Phase 5 Progress (started 2026-07-12, Radeon RX 7900 XTX)
 
@@ -181,8 +181,8 @@ Installer used for this 1.0-era checklist: CI run `28686185843` artifact `Lightw
 - **H1, graceful stop on upgrade.** `PrepareToInstall` first runs the installed exe with `--stop` when its file version is 1.0.2.0 or newer, so the old app releases its fans to the driver's automatic control. Only then does the existing `taskkill` run, as a fallback (a build that doesn't stop within its timeout is force-closed as before; 1.0.0 and 1.0.1 are still force-closed). The gate is 1.0.2.0 because 1.0.0 and 1.0.1 ignore arguments and would open a second tray, hanging setup; a missing exe or an unreadable version skips `--stop`. `--stop` exit 0 sets the relaunch flag and waits 1500 ms, as the kill path does. The setup log records `PrepareToInstall: graceful stop gate=... version=...`, `--stop exit <n>` and `taskkill exit <n>`.
 - **H2, uninstall.** The `--stop` and `--restore-auto` `[UninstallRun]` entries carry `skipifdoesntexist`, so a removed or renamed exe no longer errors. It applies to uninstall logs written by 1.1.1 or later.
 - **CI scenario S7** (`tools/uninstall-repro`): upgrade over a running 1.1 tray. On a GPU-less runner `--stop` exits 1 (the tray is still inside its no-backend dialog and has no stop listener), so the taskkill fallback and the relaunch are what CI proves. Owner/session mismatch, a foreign app process, or `--stop` exit 3 are reported as preconditions, not product failures.
-- **Before publish:** the graceful exit-0 path (a tray that stops and releases the fans itself) needs the declared hardware check on a real GPU. CI cannot exercise it.
-- **Merge condition:** `VERSION` is already 1.1.1 on this branch. Merge only after v1.1.0 is released (rc.3 promoted).
+- **Hardware check (passed 2026-11-25, signed `v1.1.1-rc.1`):** the graceful exit-0 path (a tray that stops and releases the fans itself), which CI cannot exercise. Upgrading over a running 1.1.0 was tested on an AMD Radeon RX 7800 XT: the running app released its fans to the driver's automatic control before the upgrade replaced it. Not covered: upgrades from 1.0.2, RDNA1/RDNA2 cards, and an upgrade under load.
+- **Merge condition:** `VERSION` is already 1.1.1 on this branch. Merge only after v1.1.0 is released (rc.3 promoted); met on 2026-11-23.
 
 ## Context Handoff Hygiene
 

@@ -6,6 +6,8 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [1.1.1] — Unreleased
 
+Upgrading over a running 1.1.0 was tested on an AMD Radeon RX 7800 XT: the running app released its fans to the driver's automatic control before the upgrade replaced it.
+
 ### Fixed
 
 - An upgrade over a running 1.0.2 or 1.1 build first asks it to stop gracefully (it releases its fans to the driver's automatic control) and only then force-closes it as a fallback. Before, the installer always force-closed it, which skipped the old app's fan restore. 1.0.0/1.0.1 are still force-closed (they have no graceful stop).

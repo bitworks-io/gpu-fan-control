@@ -2,8 +2,8 @@ name: Uninstall Repro
 
 # Reproduces the silent-uninstall failure seen on a bench (unins000.exe /VERYSILENT exited 1 after
 # about 2 minutes with no log) across several over-install histories, as a non-elevated standard user.
-# Diagnostic only: no product change. Scenarios S1, S4, S5b and S6 are asserted (S1/S4 controls; S5b/S6
-# the 1.1 -> 1.0.2 downgrade, the latter with the 1.0.2 tray running); S2, S3 and S5 are the experiment
+# Diagnostic only: no product change. Scenarios S1, S4, S5b, S6 and S7 are asserted (S1/S4 controls; S5b/S6
+# the 1.1 -> 1.0.2 downgrade, the latter with the 1.0.2 tray running; S7 an upgrade over a running 1.1 tray); S2, S3 and S5 are the experiment
 # and are reported, not asserted. The v1.0.2 installer is built in-job from the pinned V102_SHA. See
 # docs/superpowers/plans/2026-11-09-rc3-ramp-hysteresis-and-uninstall-repro.md (Part B).
 
@@ -155,7 +155,7 @@ jobs:
           "V101_INSTALLER=$(Join-Path $dir 'v1.0.1.exe')" | Add-Content $env:GITHUB_ENV
           "REPRO_READY=true" | Add-Content $env:GITHUB_ENV
 
-      # S1 and S4 (the controls) run first and are asserted: they fail on anything but success. S5b and S6 (asserted) run
+      # S1 and S4 (the controls) run first and are asserted: they fail on anything but success. S5b, S6 and S7 (asserted) run
       # next, BEFORE the reported scenarios: S5 leaves a hung app process of its own user running until teardown, which
       # would change what the 1.1 uninstaller's taskkill reports in a later scenario (S5b/S6 also refuse to judge with
       # another scenario's app process present). S2, S3, S5 report the exact outcome and always exit 0. Every scenario
@@ -189,6 +189,14 @@ jobs:
         shell: powershell
         run: |
           & "$env:GITHUB_WORKSPACE\tools\uninstall-repro\Run-Scenario.ps1" -Scenario S6 `
+            -TestInstaller $env:TEST_INSTALLER -V100Installer $env:V100_INSTALLER -V101Installer $env:V101_INSTALLER -V102Installer $env:V102_INSTALLER `
+            -WorkRoot $env:WORK_ROOT -TimeoutSec 300
+
+      - name: S7 - test build, upgrade over a running tray (asserted)
+        if: ${{ !cancelled() && env.REPRO_READY == 'true' }}
+        shell: powershell
+        run: |
+          & "$env:GITHUB_WORKSPACE\tools\uninstall-repro\Run-Scenario.ps1" -Scenario S7 `
             -TestInstaller $env:TEST_INSTALLER -V100Installer $env:V100_INSTALLER -V101Installer $env:V101_INSTALLER -V102Installer $env:V102_INSTALLER `
             -WorkRoot $env:WORK_ROOT -TimeoutSec 300
 

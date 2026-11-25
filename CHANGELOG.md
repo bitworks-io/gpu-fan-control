@@ -4,6 +4,15 @@ All notable changes to **Lightweight AMD GPU Fan Control** are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.1] — Unreleased
+
+Upgrading over a running 1.1.0 was tested on an AMD Radeon RX 7800 XT: the running app released its fans to the driver's automatic control before the upgrade replaced it.
+
+### Fixed
+
+- An upgrade over a running 1.0.2 or 1.1 build first asks it to stop gracefully (it releases its fans to the driver's automatic control) and only then force-closes it as a fallback. Before, the installer always force-closed it, which skipped the old app's fan restore. 1.0.0/1.0.1 are still force-closed (they have no graceful stop).
+- Uninstall no longer errors if the app's exe was removed or renamed, for uninstall logs written by 1.1.1 or later (`skipifdoesntexist`).
+
 ## [1.1.0] — 2026-11-23
 
 RDNA1 (RX 5700 / 5600 series) support, read-only diagnostics, an unattended
@@ -265,6 +274,7 @@ fan-curve UI. Publisher: Bitworks (bitworks.io).
 - No network calls except user-initiated browser opens to bitworks.io. No telemetry,
   no secrets.
 
+[1.1.1]: https://github.com/bitworks-io/gpu-fan-control/compare/v1.1.0-rc.3...main
 [1.1.0]: https://github.com/bitworks-io/gpu-fan-control/releases/tag/v1.1.0-rc.3
 [1.0.2]: https://github.com/bitworks-io/gpu-fan-control/releases/tag/v1.0.2
 [1.0.1]: https://github.com/bitworks-io/gpu-fan-control/compare/v1.0.0...v1.0.1

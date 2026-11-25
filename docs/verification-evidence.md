@@ -96,6 +96,14 @@ gh run download <run-id> -n LightweightAmdGpuFanControl-Setup
 - **Read-back:** the release is titled `v1.1.0` and is not a prerelease; `releases/latest` resolves to it; the installer asset's SHA-256 is unchanged (`d6c4a10db026ce47db392da04966b42181c532dfafe834eee204656967d7e494`, file version 1.1.0.0); the tag `v1.1.0-rc.3` still points at the rc.3 commit; the published body matches the curated notes; the `releases/latest/download/LightweightAmdGpuFanControl-Setup.exe` URL returns 200.
 - **Known issue carried in the notes:** RX 7900 XT fan regulation not verified (see above).
 
+## 2026-11-25 — v1.1.1-rc.1 release check and upgrade hardware check
+
+- **Tag:** annotated `v1.1.1-rc.1` on `6e58018` (the 1.1.1 PR head before this docs update). The tag run `45483095126` passed: build (tests, installer, Azure Artifact Signing) and release.
+- **GitHub:** a prerelease; `releases/latest` is still the 1.1.0 release.
+- **Installer:** `LightweightAmdGpuFanControl-Setup.exe`, 2,770,760 bytes, SHA-256 `7921b4cda052d33054fbbe32cc18124e954e59316148eb83498cae54cf0c77bb`. This matches GitHub's asset digest. ProductVersion `1.1.1`. The Authenticode signature verifies (checked on macOS); signer `O=Bitworks LLC`, issued by Microsoft ID Verified CS EOC CA 04.
+- **Hardware check:** Upgrading over a running 1.1.0 was tested on an AMD Radeon RX 7800 XT: the running app released its fans to the driver's automatic control before the upgrade replaced it.
+- **Not covered:** upgrades from 1.0.2 (the graceful-stop gate admits them), RDNA1/RDNA2 cards, and an upgrade under load.
+
 ## 2026-07-12 Phase 5 — first hardware test (RX 7900 XTX) + fixes
 
 - **Hardware finding:** fan increased when raising min fan speed but would not slow back down when

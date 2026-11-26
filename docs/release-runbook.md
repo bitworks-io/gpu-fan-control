@@ -43,8 +43,9 @@ binary is not any previously-downloaded artifact.
   - **Or promote the validated rc** instead of tagging the final:
     `gh release edit vX.Y.Z-rc.N --prerelease=false --latest --title "vX.Y.Z" --notes-file <curated notes>`.
     There is no rebuild: the same signed installer becomes `latest`, and the release keeps
-    the rc tag. 1.1.0 shipped this way, so **never push a `v1.1.0` tag**: CI would build,
-    sign and publish a second 1.1.0 with a different installer and make it `latest`.
+    the rc tag. 1.1.0 and 1.1.1 shipped this way, so **never push a `v1.1.0` or `v1.1.1` tag**:
+    CI would build, sign and publish a second release of that version with a different
+    installer and make it `latest`.
     Use one route per version.
 - **Before uninstalling an rc,** copy `log.txt`, `probe-*.txt` and `status.json` out of
   `%LOCALAPPDATA%\Bitworks\LightweightAmdGpuFanControl` first. The uninstaller

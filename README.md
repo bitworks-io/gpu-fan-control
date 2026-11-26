@@ -243,11 +243,11 @@ confirmed reset it clears that GPU's old journal entry. Afterwards `--probe` sho
 
 ### Known issues
 
-- **RX 7900 XT: fan regulation is not verified for 1.1.0.** In pre-release testing on an
+- **RX 7900 XT: fan regulation is not verified.** In 1.1.0 pre-release testing on an
   RX 7900 XT, the release to automatic control on exit worked (factory reset confirmed). But one
   fan-speed check at high fan duty did not pass: a commanded increase from 41 % to 43 % raised the
-  fan speed less than the test requires. A re-test is planned. Until it passes, treat fan
-  regulation on the RX 7900 XT as unverified.
+  fan speed less than the test requires. Until a re-test passes, treat fan regulation on the
+  RX 7900 XT as unverified.
 - **Don't downgrade below 1.0.2 after installing any 1.1 build.** After a 1.1 build, installing
   1.0.0 or 1.0.1 over it leaves an uninstaller that can hang, because the older exe opens its
   tray instead of stopping. Fix: install 1.0.2, or a 1.1 build, over it, then uninstall.

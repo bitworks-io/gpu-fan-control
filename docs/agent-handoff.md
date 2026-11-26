@@ -1,6 +1,6 @@
 # Agent Handoff
 
-Last reviewed: 2026-11-24
+Last reviewed: 2026-11-26
 
 This document is for the next implementation agent (Codex, Claude Code, or human). Keep it current when architecture, workflows, verification commands, release steps, or known risks change.
 
@@ -108,9 +108,9 @@ gh run download <id> -n LightweightAmdGpuFanControl-Setup         # get Setup.ex
 ## Commit And Release Guidance
 
 - Version single-sourced in `VERSION` (currently `1.1.1`); `build.ps1` and the installer read it. Tag-push `v*` triggers the CI `release` job (GitHub Release + signed Setup.exe); a tag with a hyphen (`-rc.N`) publishes a prerelease that never becomes `latest`.
-- **Release mechanics are in `docs/release-runbook.md`** (preconditions, the one-action tag/push, tag-target decision, rc promotion, curated-notes step, post-release verification, rollback). `CHANGELOG.md` must ride onto the commit that gets tagged. 1.1.0 was released by promoting rc.3 (see 1.1.0 status, step 4), so never push a `v1.1.0` tag.
+- **Release mechanics are in `docs/release-runbook.md`** (preconditions, the one-action tag/push, tag-target decision, rc promotion, curated-notes step, post-release verification, rollback). `CHANGELOG.md` must ride onto the commit that gets tagged. 1.1.0 was released by promoting rc.3 (see 1.1.0 status, step 4) and 1.1.1 by promoting rc.1 (see 1.1.1 status), so never push a `v1.1.0` or `v1.1.1` tag.
 - Keep native-binding csproj guard + CI verify step intact — they are the guardrail against silently shipping a broken installer.
-- **Open work:** the 1.1.1 PR (graceful `--stop` before the force-close on upgrade) targets `main` and is out of draft for review. Its declared hardware check passed on 2026-11-25 with the signed `v1.1.1-rc.1` prerelease (see the 1.1.1 section). It merges only after review and the owner's OK; promoting the prerelease to `latest` is a separate, later step.
+- **Open work:** none in flight. 1.1.1 merged on 2026-11-25 (PR #22) and was released on 2026-11-26 (see 1.1.1 status). Hardware checks still pending are listed under 1.1.0 status.
 
 ## Phase 5 Progress (started 2026-07-12, Radeon RX 7900 XTX)
 
@@ -153,12 +153,12 @@ Installer used for this 1.0-era checklist: CI run `28686185843` artifact `Lightw
 - **Released 2026-11-23 as `latest`:** the signed 1.1.0-rc.3 prerelease (published 2026-11-09) was promoted unchanged with `gh release edit` (title `v1.1.0`, prerelease off, latest on, curated notes). The release's tag is `v1.1.0-rc.3`; there is no `v1.1.0` tag. Installer SHA-256 `d6c4a10db026ce47db392da04966b42181c532dfafe834eee204656967d7e494`, file version 1.1.0.0.
 - **Hardware validation (current state)** ([verification evidence](verification-evidence.md)):
   - **RDNA1, RX 5700 XT test system:** under load the app regulated the fan along its curve (increases followed, no abort); on exit the GPU returned to the driver's automatic control, factory reset confirmed, idle fan stop back (0 rpm at idle); after a hard kill `--restore-auto` restored automatic control from the journal; the signed rc.3 installer installed cleanly over 1.0.1.
-  - **RDNA3:** RX 7800 XT test card: under load each commanded fan increase raised the fan speed, the start-up self-test passed, and the release to automatic control was verified under load and at idle with the idle fan stop back. RX 7900 XT test card: release on exit verified, factory reset confirmed. **Fan regulation on the RX 7900 XT is not verified for 1.1.0** (one check at high duty, 41 to 43 %, did not pass; a re-test is planned and, like every hardware check, needs approval before it runs).
+  - **RDNA3:** RX 7800 XT test card: under load each commanded fan increase raised the fan speed, the start-up self-test passed, and the release to automatic control was verified under load and at idle with the idle fan stop back. RX 7900 XT test card: release on exit verified, factory reset confirmed. **Fan regulation on the RX 7900 XT is not verified** (one check at high duty, 41 to 43 %, did not pass; no re-test is scheduled, and one, like every hardware check, needs approval before it runs).
   - **RDNA2:** an RX 6400 test card reports no manual fan tuning support through ADLX, so the app does not control its fan; nothing to validate there (not a statement about other RDNA2 cards).
   - Over-temperature, sensor loss, two-GPU and ADL fallback remain pending. Definitions: [plan section 6](superpowers/plans/2026-11-06-rdna1-fan-control.md#6-hardware-validation--declared-experiments).
 - **1.0.2:** released 2026-11-18, signed, on the 1.0 line (not `latest`). Safe command-line handling: `--stop` is a real graceful stop and any other `--` option exits at once. An uninstall after a 1.1 to 1.0.x downgrade no longer hangs when the 1.0.x is 1.0.2 (shown in CI); 1.0.0 and 1.0.1 remain affected.
 - **Known issues (user-facing; also in CHANGELOG and README Troubleshooting):**
-  1. RX 7900 XT fan regulation is not verified for 1.1.0 (see the RDNA3 line above).
+  1. RX 7900 XT fan regulation is not verified (see the RDNA3 line above).
   2. Don't downgrade below 1.0.2 after installing any 1.1 build: installing 1.0.0 or 1.0.1 over it leaves an uninstaller that can hang. Fix: install 1.0.2 or a 1.1 build over it, then uninstall.
   3. Upgrading while the app is running: installers up to 1.1.0 force-close a running app of any version, skipping its fan restore. Running 1.0.x: the new version starts from the old fan curve; stop the app before upgrading, or afterwards run `--reset-tuning-to-factory --gpu <uniqueId>` (id from `--probe`; resets all of that GPU's tuning, not only the fan). Running a 1.1 build: on an ADLX GPU the next start reuses the journaled pre-app state (`baseline.json`) only if the fan still looks app-set (flat duty; `BaselinePlanner.LooksAppWritten`, applied in `Choose`, which `FanController.CaptureBaseline` calls before the entry is marked dirty), so a later exit restores it. Exceptions: closed mid fan write (fan may not look app-set; the new version starts from the closed app's points); an rc.1/rc.2 entry has no factory flag, so its saved points are re-applied instead of a factory reset; a GPU on the ADL fallback has no journal and on exit is handed back to the driver's automatic mode (`AdlFanControlBackend.TryRestoreAutomaticFanControl`). From 1.1.1 the installer first asks a running 1.0.2 or later build to stop gracefully (it releases its fans); 1.0.0 and 1.0.1 are still force-closed, and a build that doesn't stop within its timeout is force-closed as before.
 - **Release sequence** ([plan section 5](superpowers/plans/2026-11-06-rdna1-fan-control.md#5-release-and-rollout)):
@@ -174,15 +174,16 @@ Installer used for this 1.0-era checklist: CI run `28686185843` artifact `Lightw
 - **Submodule:** `external/ADLX` points at the bitworks-io/ADLX fork (Rem0o/ADLX 240b1f3 plus `IsAtFactory`/`ResetToFactory` on `GPUTuningService`); see NOTICE. The fork must exist and contain the pinned commit before CI can check out the submodule.
 - **D6 (fail closed, Task 5c):** the pinned SDK has no `ADLX_RESET_NEEDED` and the wrapper reports errors only as text, so every fan-write error is treated alike: `GpuControlTracker` (Core) refuses a GPU on a start/self-test error and degrades it on a regulation error (one release through the planner path, no retries). Reported as `gpuIssues` in `status.json` and `last run:` lines in `--probe`; guarded by `FailClosedSourceGuardTests`.
 - **Fallback:** on a single-ADLX-GPU system, no ADLX channel (for example `FanController.Initialize` fails closed because the pre-app fan state cannot be read) means the existing fallback to the ADL backend, which has no release plan (it restores the driver default).
-- **Open:** fan regulation on the RX 7900 XT is not verified (one check at 41 to 43 % did not pass; re-test planned); over-temperature, sensor loss, two-GPU and ADL fallback checks remain pending.
+- **Open:** fan regulation on the RX 7900 XT is not verified (one check at 41 to 43 % did not pass; no re-test is scheduled); over-temperature, sensor loss, two-GPU and ADL fallback checks remain pending.
 
-## 1.1.1 (in development)
+## 1.1.1 status
 
+- **Released 2026-11-26 as `latest`:** the signed `v1.1.1-rc.1` prerelease was promoted unchanged with `gh release edit` (title `v1.1.1`, prerelease off, latest on, curated notes). The release's tag is `v1.1.1-rc.1`; there is no `v1.1.1` tag. Installer SHA-256 `7921b4cda052d33054fbbe32cc18124e954e59316148eb83498cae54cf0c77bb`, product version 1.1.1. The app's fan control is unchanged from 1.1.0.
 - **H1, graceful stop on upgrade.** `PrepareToInstall` first runs the installed exe with `--stop` when its file version is 1.0.2.0 or newer, so the old app releases its fans to the driver's automatic control. Only then does the existing `taskkill` run, as a fallback (a build that doesn't stop within its timeout is force-closed as before; 1.0.0 and 1.0.1 are still force-closed). The gate is 1.0.2.0 because 1.0.0 and 1.0.1 ignore arguments and would open a second tray, hanging setup; a missing exe or an unreadable version skips `--stop`. `--stop` exit 0 sets the relaunch flag and waits 1500 ms, as the kill path does. The setup log records `PrepareToInstall: graceful stop gate=... version=...`, `--stop exit <n>` and `taskkill exit <n>`.
 - **H2, uninstall.** The `--stop` and `--restore-auto` `[UninstallRun]` entries carry `skipifdoesntexist`, so a removed or renamed exe no longer errors. It applies to uninstall logs written by 1.1.1 or later.
 - **CI scenario S7** (`tools/uninstall-repro`): upgrade over a running 1.1 tray. On a GPU-less runner `--stop` exits 1 (the tray is still inside its no-backend dialog and has no stop listener), so the taskkill fallback and the relaunch are what CI proves. Owner/session mismatch, a foreign app process, or `--stop` exit 3 are reported as preconditions, not product failures.
 - **Hardware check (passed 2026-11-25, signed `v1.1.1-rc.1`):** the graceful exit-0 path (a tray that stops and releases the fans itself), which CI cannot exercise. Upgrading over a running 1.1.0 was tested on an AMD Radeon RX 7800 XT: the running app released its fans to the driver's automatic control before the upgrade replaced it. Not covered: upgrades from 1.0.2, RDNA1/RDNA2 cards, and an upgrade under load.
-- **Merge condition:** `VERSION` is already 1.1.1 on this branch. Merge only after v1.1.0 is released (rc.3 promoted); met on 2026-11-23.
+- **Merged** 2026-11-25 (PR #22), after v1.1.0 was released.
 
 ## Context Handoff Hygiene
 
